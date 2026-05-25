@@ -67,13 +67,16 @@ const Input = {
       !Input._isEditableTarget(e.target);
   },
   
-  init(canvas) {
-    canvas.tabIndex = 0;
-    window.addEventListener('keydown', e => {
-      if (Input._shouldPreventKeyDefault(e))
-        e.preventDefault();
-      if (!Input.keys[e.code]) Input.pressed[e.code] = true;
-      Input.keys[e.code] = true;
+    init(canvas) {
+      canvas.tabIndex = 0;
+      const blockContextMenu = (e) => e.preventDefault();
+      window.addEventListener('contextmenu', blockContextMenu, { capture: true });
+      document.addEventListener('contextmenu', blockContextMenu, { capture: true });
+      window.addEventListener('keydown', e => {
+        if (Input._shouldPreventKeyDefault(e))
+          e.preventDefault();
+        if (!Input.keys[e.code]) Input.pressed[e.code] = true;
+        Input.keys[e.code] = true;
     });
     window.addEventListener('keyup', e => {
       if (Input._shouldPreventKeyDefault(e))
@@ -99,8 +102,8 @@ const Input = {
       Input.mb[e.button] = false;
       e.preventDefault();
     });
-    canvas.addEventListener('contextmenu', e => e.preventDefault());
-  },
+      canvas.addEventListener('contextmenu', blockContextMenu, { capture: true });
+    },
 
   flush() {
     Input.pressed  = {};
