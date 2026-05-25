@@ -18,6 +18,23 @@ function sweptAABB(x0, y0, x1, y1, rect) {
   return tMin <= tMax;
 }
 
+const ProjectileSpriteAssets = (() => {
+  const makeSprite = (src) => {
+    if (!src) return { img: null, loaded: false, failed: true };
+    const img = new Image();
+    const asset = { img, loaded: false, failed: false };
+    img.onload = () => { asset.loaded = true; };
+    img.onerror = () => { asset.failed = true; };
+    img.src = src;
+    return asset;
+  };
+  return {
+    // Test-safe optional sprites: keep fallback circles when dedicated art is absent.
+    air: makeSprite(null),
+    fire: makeSprite(null),
+  };
+})();
+
 // ?? ?꾨겮 ?ъ궗泥?????????????????????????????????????????
 class Axe {
   constructor(x, y, vx, vy, ownerPlayer, upgraded) {
@@ -75,47 +92,25 @@ class Axe {
 
   _oneWayHitSurface(prevX, prevY, nextX, nextY, t, R) {
     if (!t.oneWay) return null;
+    if (this.vy <= 0) return null;
     const hitXRange = (hitX) => hitX >= t.l - R && hitX <= t.r + R;
 
-    if (this.vy > 0) {
-      const prevBottom = prevY + R;
-      const nextBottom = nextY + R;
-      if (prevBottom > t.t || nextBottom < t.t) return null;
+    const prevBottom = prevY + R;
+    const nextBottom = nextY + R;
+    if (prevBottom > t.t || nextBottom < t.t) return null;
 
-      const denom = nextBottom - prevBottom;
-      if (Math.abs(denom) < 1e-6) return null;
-      const hitT = (t.t - prevBottom) / denom;
-      if (hitT < 0 || hitT > 1) return null;
+    const denom = nextBottom - prevBottom;
+    if (Math.abs(denom) < 1e-6) return null;
+    const hitT = (t.t - prevBottom) / denom;
+    if (hitT < 0 || hitT > 1) return null;
 
-      const hitX = prevX + (nextX - prevX) * hitT;
-      if (!hitXRange(hitX)) return null;
+    const hitX = prevX + (nextX - prevX) * hitT;
+    if (!hitXRange(hitX)) return null;
 
-      return {
-        x: clamp(hitX, t.l, t.r),
-        y: t.t - R,
-      };
-    }
-
-    if (this.vy < 0) {
-      const prevTop = prevY - R;
-      const nextTop = nextY - R;
-      if (prevTop < t.b || nextTop > t.b) return null;
-
-      const denom = nextTop - prevTop;
-      if (Math.abs(denom) < 1e-6) return null;
-      const hitT = (t.b - prevTop) / denom;
-      if (hitT < 0 || hitT > 1) return null;
-
-      const hitX = prevX + (nextX - prevX) * hitT;
-      if (!hitXRange(hitX)) return null;
-
-      return {
-        x: clamp(hitX, t.l, t.r),
-        y: t.b + R,
-      };
-    }
-
-    return null;
+    return {
+      x: clamp(hitX, t.l, t.r),
+      y: t.t - R,
+    };
   }
 
   _updateFlying(tiles, entities) {
@@ -307,12 +302,14 @@ class PlayerProjectile {
 
 // ?? ???ъ궗泥???????????????????????????????????????????
 class EnemyProjectile {
-  constructor(x, y, dirX, dirY, speed, damage, color, radius) {
+  constructor(x, y, dirX, dirY, speed, damage, color, radius, spriteKey = null, opts = {}) {
     this.x = x; this.y = y;
     this.vx = dirX * speed; this.vy = dirY * speed;
     this.damage = damage;
     this.color  = color || '#8cf';
     this.radius = radius || 5;
+    this.spriteKey = spriteKey;
+    this.ignoreWalls = !!opts.ignoreWalls;
     this.isDead = false;
     this.removeMe = false;
   }
@@ -325,9 +322,11 @@ class EnemyProjectile {
 
     // 踰?異⑸룎 (swept: 怨좎냽 ?ъ궗泥??곕꼸留?諛⑹?)
     const R = 4;
-    for (const t of tiles) {
-      const et = { l: t.l-R, t: t.t-R, r: t.r+R, b: t.b+R };
-      if (sweptAABB(prevX, prevY, this.x, this.y, et)) { this._die(); return; }
+    if (!this.ignoreWalls) {
+      for (const t of tiles) {
+        const et = { l: t.l-R, t: t.t-R, r: t.r+R, b: t.b+R };
+        if (sweptAABB(prevX, prevY, this.x, this.y, et)) { this._die(); return; }
+      }
     }
 
     // ?뚮젅?댁뼱 異⑸룎
@@ -344,9 +343,20 @@ class EnemyProjectile {
 
   _die() { this.isDead = true; this.removeMe = true; }
 
+  _getSpriteAsset() {
+    if (!this.spriteKey) return null;
+    return ProjectileSpriteAssets[this.spriteKey] || null;
+  }
+
   draw(ctx) {
     if (this.isDead) return;
     const s = Camera.toScreen(this.x, this.y);
+    const asset = this._getSpriteAsset();
+    if (asset && asset.loaded && !asset.failed) {
+      const size = this.radius * 4;
+      ctx.drawImage(asset.img, s.x - size / 2, s.y - size / 2, size, size);
+      return;
+    }
     ctx.beginPath();
     ctx.arc(s.x, s.y, this.radius, 0, Math.PI*2);
     ctx.fillStyle = this.color;

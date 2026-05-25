@@ -2,6 +2,26 @@
 // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧??// bosses.js  ?? 蹂댁뒪 踰좎씠??+ Boss1 + BossFinal
 // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧??
 // ?? Boss 踰좎씠?????????????????????????????????????????
+const BossSpriteAssets = (() => {
+  const makeSprite = (src) => {
+    if (!src) return { img: null, loaded: false, failed: true };
+    const img = new Image();
+    const asset = { img, loaded: false, failed: false };
+    img.onload = () => { asset.loaded = true; };
+    img.onerror = () => { asset.failed = true; };
+    img.src = src;
+    return asset;
+  };
+  return {
+    boss1: makeSprite('assets/sprites/boss-child.svg'),
+    boss2: makeSprite('assets/sprites/boss-stopped-youth.svg'),
+    boss3: makeSprite('assets/sprites/boss-fleeing-youth.svg'),
+    finalBoss: makeSprite('assets/sprites/boss-final.svg'),
+    // Optional effect sprite: keep circle fallback when dedicated art is absent.
+    smokeCloud: makeSprite(null),
+  };
+})();
+
 class Boss {
   constructor(x, y, callbacks = {}) {
     this.x = x; this.y = y;
@@ -26,6 +46,7 @@ class Boss {
     this._hitFlash = 0;
     this.color    = '#c03060';
     this.baseColor = '#c03060';
+    this._spriteKey = null;
 
     this._fighting  = false;
     this._callbacks = callbacks;  // { onDie } ??game.js?먯꽌 二쇱엯
@@ -138,9 +159,9 @@ class Boss {
       this._player.takeDamage(damage);
   }
 
-  _spawnProjectile(dirX, dirY, spd, dmg) {
+  _spawnProjectile(dirX, dirY, spd, dmg, spriteKey = null, opts = null) {
     Projectiles.add(new EnemyProjectile(
-      this.x, this.y - 32, dirX, dirY, spd, dmg, '#f88', 7
+      this.x, this.y - 32, dirX, dirY, spd, dmg, '#f88', 7, spriteKey, opts || undefined
     ));
   }
 
@@ -162,13 +183,12 @@ class Boss {
     return crossed;
   }
 
-  draw(ctx) {
-    if (this.removeMe) return;
-    const s = Camera.toScreen(this.x, this.y);
-    const sx = s.x, sy = s.y;
+  _getSpriteAsset() {
+    if (!this._spriteKey) return null;
+    return BossSpriteAssets[this._spriteKey] || null;
+  }
 
-    if (this.isDead) ctx.globalAlpha = 0.3;
-
+  _drawFallbackBody(ctx, sx, sy) {
     ctx.fillStyle = this._hitFlash > 0 ? '#ffaaaa' : this.color;
     ctx.fillRect(sx - this.hw, sy - this.height, this.hw*2, this.height);
     ctx.strokeStyle = this.baseColor;
@@ -181,6 +201,28 @@ class Boss {
     ctx.fillRect(eyeX - 3, sy - this.height + 10, 6, 6);
     ctx.fillStyle = '#333';
     ctx.fillRect(eyeX - 1, sy - this.height + 12, 3, 3);
+  }
+
+  _drawSpriteBody(ctx, sx, sy) {
+    const asset = this._getSpriteAsset();
+    if (!asset || !asset.loaded || asset.failed) return false;
+
+    ctx.save();
+    ctx.translate(sx, sy - this.height / 2);
+    ctx.scale(this._dirToPlayer() >= 0 ? 1 : -1, 1);
+    ctx.drawImage(asset.img, -this.hw, -this.height / 2, this.hw * 2, this.height);
+    ctx.restore();
+    return true;
+  }
+
+  draw(ctx) {
+    if (this.removeMe) return;
+    const s = Camera.toScreen(this.x, this.y);
+    const sx = s.x, sy = s.y;
+
+    if (this.isDead) ctx.globalAlpha = 0.3;
+    if (!this._drawSpriteBody(ctx, sx, sy))
+      this._drawFallbackBody(ctx, sx, sy);
 
     ctx.globalAlpha = 1;
   }
@@ -191,44 +233,47 @@ class Boss1 extends Boss {
   constructor(x, y, callbacks = {}) {
     super(x, y, callbacks);
     this.displayName = 'Burning Child';
-    this.hp = 500; this.maxHp = 500;
+    this.hp = 900; this.maxHp = 900;
     this.hw = 16; this.height = 56;
     this.color = '#5080d0'; this.baseColor = '#5080d0';
+    this._spriteKey = 'boss1';
 
     this.APPROACH_SPEED = 180;
     this.DASH_SPEED     = 800;
     this.DASH_DUR       = 15;  // frames
     this.CD_FRAMES      = 70;
-    this.ATTACK_RANGE   = 90;
-    this.MELEE_DMG      = 50;
+    this.ATTACK_RANGE   = 150;
+    this.MELEE_DMG      = 110;
     this.MELEE_W = 56; this.MELEE_H = 48;
     this.CHARGE_TELEGRAPH_FRAMES = 34;  // 0.57s @ 60fps
     this.CHARGE_DASH_FRAMES      = 22;  // 0.37s @ 60fps
     this.CHARGE_RECOVERY_FRAMES  = 48;  // 0.8s @ 60fps
     this.CHARGE_COOLDOWN_FRAMES  = 150; // 2.5s @ 60fps
-    this.CHARGE_TRIGGER_MIN      = 150;
-    this.CHARGE_TRIGGER_MAX      = 420;
+    this.CHARGE_TRIGGER_MIN      = 220;
+    this.CHARGE_TRIGGER_MAX      = 620;
     this.CHARGE_SPEED            = 680;
     this.HALF_BARRAGE_TRIGGER_RATIO = 0.5;
     this.HALF_BARRAGE_MOVE_SPEED    = 420;
-    this.HALF_BARRAGE_ATTACK_FRAMES = 156; // 2.6s
+    this.HALF_BARRAGE_ATTACK_FRAMES = 330; // 5.5s
     this.HALF_BARRAGE_RETURN_FRAMES = 30;  // 0.5s
-    this.HALF_BARRAGE_TARGET_MARGIN_RIGHT = 180;
-    this.HALF_BARRAGE_AIMED_INTERVAL = 39; // 0.65s
-    this.HALF_BARRAGE_FIXED_INTERVAL = 33; // 0.55s
-    this.HALF_BARRAGE_AIMED_SPEED    = 220;
-    this.HALF_BARRAGE_FIXED_SPEED    = 190;
-    this.HALF_BARRAGE_BULLET_DMG     = 12;
-    this.PULSE_TRIGGER_RANGE     = 120;
+    this.HALF_BARRAGE_TARGET_X      = ROOM_W * 0.5;
+    this.HALF_BARRAGE_TARGET_Y      = 176;
+    this.HALF_BARRAGE_AIMED_INTERVAL = 20;
+    this.HALF_BARRAGE_FIXED_INTERVAL = 12;
+    this.HALF_BARRAGE_SPREAD_INTERVAL = 36;
+    this.HALF_BARRAGE_AIMED_SPEED    = 270;
+    this.HALF_BARRAGE_FIXED_SPEED    = 240;
+    this.HALF_BARRAGE_BULLET_DMG     = 24;
+    this.PULSE_TRIGGER_RANGE     = 220;
     this.PULSE_TELEGRAPH_FRAMES  = 34;  // 0.57s
     this.PULSE_ATTACK_FRAMES     = 9;   // 0.15s
     this.PULSE_RECOVERY_FRAMES   = 27;  // 0.45s
     this.PULSE_COOLDOWN_FRAMES   = 180; // 3.0s
-    this.PULSE_RADIUS            = 120;
-    this.PULSE_DAMAGE            = 28;
+    this.PULSE_RADIUS            = 220;
+    this.PULSE_DAMAGE            = 64;
     this.AIR_SHOT_INTERVAL_FRAMES = 150; // 2.5s
     this.AIR_SHOT_SPEED           = 230;
-    this.AIR_SHOT_DAMAGE          = 8;
+    this.AIR_SHOT_DAMAGE          = 18;
     this.AIR_SHOT_RADIUS          = 5;
     this.CHARGE_MIN_ACTIVE_FRAMES = 4;
 
@@ -242,8 +287,11 @@ class Boss1 extends Boss {
     this._pulseCooldown = 45;
     this._airShotCooldown = this.AIR_SHOT_INTERVAL_FRAMES;
     this._halfBarrageTriggered = false;
-    this._halfBarrageTargetX = ROOM_W - this.HALF_BARRAGE_TARGET_MARGIN_RIGHT;
+    this._halfBarrageTargetX = this.HALF_BARRAGE_TARGET_X;
+    this._halfBarrageTargetY = this.HALF_BARRAGE_TARGET_Y;
     this._halfBarrageStartX = x;
+    this._halfBarrageStartY = y;
+    this._combatFloorY = y;
   }
 
   takeDamage(amount, sourceType = 'field', sourceAttacker = null) {
@@ -424,39 +472,48 @@ class Boss1 extends Boss {
   }
 
   _handleHalfBarrageMove() {
-    this.vy = 0;
+    const dy = this._halfBarrageTargetY - this.y;
     const dx = this._halfBarrageTargetX - this.x;
-    if (Math.abs(dx) <= 8) {
+    if (Math.abs(dx) <= 8 && Math.abs(dy) <= 8) {
       this.x = this._halfBarrageTargetX;
+      this.y = this._halfBarrageTargetY;
       this.vx = 0;
+      this.vy = 0;
       this._changeState('halfBarrageAttack');
       return;
     }
     this.vx = Math.sign(dx) * this.HALF_BARRAGE_MOVE_SPEED;
+    this.vy = Math.sign(dy) * this.HALF_BARRAGE_MOVE_SPEED;
   }
 
   _handleHalfBarrageAttack() {
     this.vx = 0;
     this.vy = 0;
     this.x = this._halfBarrageTargetX;
+    this.y = this._halfBarrageTargetY;
     if (this.tick === 1 || this.tick % this.HALF_BARRAGE_AIMED_INTERVAL === 0)
       this._fireHalfBarrageAimedShot();
     if (this.tick === 1 || this.tick % this.HALF_BARRAGE_FIXED_INTERVAL === 0)
       this._fireHalfBarrageFixedFan();
+    if (this.tick > 1 && this.tick % this.HALF_BARRAGE_SPREAD_INTERVAL === 0)
+      this._fireHalfBarrageAimedSpread();
 
     if (this.tick >= this.HALF_BARRAGE_ATTACK_FRAMES)
       this._changeState('halfBarrageReturn');
   }
 
   _handleHalfBarrageReturn() {
-    this.vy = 0;
+    const targetY = this._combatFloorY || this._halfBarrageStartY;
     const dx = this._player ? this._player.x - this.x : this._halfBarrageStartX - this.x;
-    if (this.tick >= this.HALF_BARRAGE_RETURN_FRAMES || Math.abs(dx) <= 24) {
+    const dy = targetY - this.y;
+    if (this.tick >= this.HALF_BARRAGE_RETURN_FRAMES || (Math.abs(dx) <= 24 && Math.abs(dy) <= 12)) {
       this.vx = 0;
+      this.vy = 0;
       this._changeState('approach');
       return;
     }
     this.vx = Math.sign(dx || -1) * this.APPROACH_SPEED;
+    this.vy = Math.sign(dy || 1) * this.APPROACH_SPEED;
   }
 
   _fireHalfBarrageAimedShot() {
@@ -466,15 +523,41 @@ class Boss1 extends Boss {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const len = Math.hypot(dx, dy) || 1;
-    this._spawnProjectile(dx / len, dy / len, this.HALF_BARRAGE_AIMED_SPEED, this.HALF_BARRAGE_BULLET_DMG);
+    this._spawnProjectile(dx / len, dy / len, this.HALF_BARRAGE_AIMED_SPEED, this.HALF_BARRAGE_BULLET_DMG, null, { ignoreWalls: true });
   }
 
   _fireHalfBarrageFixedFan() {
-    const offsets = [-0.35, 0, 0.35];
-    const baseAngle = Math.PI;
-    for (const offset of offsets) {
-      const a = baseAngle + offset;
-      this._spawnProjectile(Math.cos(a), Math.sin(a), this.HALF_BARRAGE_FIXED_SPEED, this.HALF_BARRAGE_BULLET_DMG);
+    const volleyIndex = Math.floor(this.tick / this.HALF_BARRAGE_FIXED_INTERVAL);
+    const step = (Math.PI * 2) / 12;
+    const rotation = volleyIndex * 0.18;
+    for (let i = 0; i < 12; i++) {
+      const a = rotation + i * step;
+      this._spawnProjectile(
+        Math.cos(a),
+        Math.sin(a),
+        this.HALF_BARRAGE_FIXED_SPEED,
+        this.HALF_BARRAGE_BULLET_DMG,
+        null,
+        { ignoreWalls: true }
+      );
+    }
+  }
+
+  _fireHalfBarrageAimedSpread() {
+    if (!this._player) return;
+    const from = this._getBodyCenter();
+    const to = this._getPlayerCenter();
+    const baseAngle = Math.atan2(to.y - from.y, to.x - from.x);
+    for (const offset of [-0.34, -0.17, 0, 0.17, 0.34]) {
+      const angle = baseAngle + offset;
+      this._spawnProjectile(
+        Math.cos(angle),
+        Math.sin(angle),
+        this.HALF_BARRAGE_AIMED_SPEED * 0.96,
+        this.HALF_BARRAGE_BULLET_DMG,
+        null,
+        { ignoreWalls: true }
+      );
     }
   }
 
@@ -535,7 +618,8 @@ class Boss1 extends Boss {
       this.AIR_SHOT_SPEED,
       this.AIR_SHOT_DAMAGE,
       '#d8f6ff',
-      this.AIR_SHOT_RADIUS
+      this.AIR_SHOT_RADIUS,
+      'air'
     ));
     addVfx({
       type: 'circle',
@@ -726,48 +810,50 @@ class Boss2 extends Boss1 {
   constructor(x, y, callbacks = {}) {
     super(x, y, callbacks);
     this.displayName = 'Stopped Youth';
-    this.hp = 700; this.maxHp = 700;
+    this.hp = 1500; this.maxHp = 1500;
     this.color = '#cf6d2c'; this.baseColor = '#cf6d2c';
+    this._spriteKey = 'boss2';
     this.APPROACH_SPEED = 220;
     this.DASH_SPEED = 880;
     this.P2_SPEED_MUL = 1.25;
 
-    this.HEAT_SLASH_TELEGRAPH_FRAMES = 30;
-    this.HEAT_SLASH_ATTACK_FRAMES = 9;
-    this.HEAT_SLASH_RECOVERY_FRAMES = 30;
-    this.HEAT_SLASH_COOLDOWN_FRAMES = 150;
-    this.HEAT_SLASH_RANGE = 190;
-    this.HEAT_SLASH_DAMAGE = 46;
-    this.HEAT_SLASH_W = 150;
-    this.HEAT_SLASH_H = 72;
-    this.HEAT_SLASH_OFFSET = 82;
+    this.HEAT_SLASH_TELEGRAPH_FRAMES = 26;
+    this.HEAT_SLASH_ATTACK_FRAMES = 12;
+    this.HEAT_SLASH_RECOVERY_FRAMES = 24;
+    this.HEAT_SLASH_COOLDOWN_FRAMES = 110;
+    this.HEAT_SLASH_RANGE = 460;
+    this.HEAT_SLASH_DAMAGE = 72;
+    this.HEAT_SLASH_W = 380;
+    this.HEAT_SLASH_H = 92;
+    this.HEAT_SLASH_OFFSET = 170;
 
-    this.FLAME_LINE_TELEGRAPH_FRAMES = 39;
-    this.FLAME_LINE_ATTACK_FRAMES = 21;
-    this.FLAME_LINE_RECOVERY_FRAMES = 21;
-    this.FLAME_LINE_COOLDOWN_FRAMES = 180;
-    this.FLAME_LINE_RANGE_MIN = 120;
-    this.FLAME_LINE_DAMAGE = 32;
-    this.FLAME_LINE_W = 280;
-    this.FLAME_LINE_H = 42;
-    this.FLAME_LINE_OFFSET_AHEAD = 56;
+    this.FLAME_LINE_TELEGRAPH_FRAMES = 30;
+    this.FLAME_LINE_ATTACK_FRAMES = 42;
+    this.FLAME_LINE_RECOVERY_FRAMES = 18;
+    this.FLAME_LINE_COOLDOWN_FRAMES = 120;
+    this.FLAME_LINE_RANGE_MIN = 140;
+    this.FLAME_LINE_DAMAGE = 54;
+    this.FLAME_LINE_W = 620;
+    this.FLAME_LINE_H = 64;
+    this.FLAME_LINE_OFFSET_AHEAD = 128;
+    this.FLAME_LINE_PULSE_INTERVAL = 18;
 
-    this.CLOSE_BURST_TRIGGER_RANGE = 110;
-    this.CLOSE_BURST_TELEGRAPH_FRAMES = 24;
+    this.CLOSE_BURST_TRIGGER_RANGE = 260;
+    this.CLOSE_BURST_TELEGRAPH_FRAMES = 20;
     this.CLOSE_BURST_ATTACK_FRAMES = 8;
-    this.CLOSE_BURST_RECOVERY_FRAMES = 24;
-    this.CLOSE_BURST_COOLDOWN_FRAMES = 165;
-    this.CLOSE_BURST_RADIUS = 124;
-    this.CLOSE_BURST_DAMAGE = 24;
+    this.CLOSE_BURST_RECOVERY_FRAMES = 20;
+    this.CLOSE_BURST_COOLDOWN_FRAMES = 120;
+    this.CLOSE_BURST_RADIUS = 300;
+    this.CLOSE_BURST_DAMAGE = 52;
 
     this.OVERHEAT_BARRAGE_TRIGGER_RATIO = 0.5;
-    this.OVERHEAT_BARRAGE_ENTER_FRAMES = 30;
-    this.OVERHEAT_BARRAGE_ATTACK_FRAMES = 180;
-    this.OVERHEAT_BARRAGE_EXIT_FRAMES = 30;
-    this.OVERHEAT_BARRAGE_AIMED_INTERVAL = 36;
-    this.OVERHEAT_BARRAGE_FIXED_INTERVAL = 30;
-    this.OVERHEAT_BARRAGE_BULLET_SPEED = 280;
-    this.OVERHEAT_BARRAGE_BULLET_DAMAGE = 20;
+    this.OVERHEAT_BARRAGE_ENTER_FRAMES = 24;
+    this.OVERHEAT_BARRAGE_ATTACK_FRAMES = 260;
+    this.OVERHEAT_BARRAGE_EXIT_FRAMES = 24;
+    this.OVERHEAT_BARRAGE_AIMED_INTERVAL = 24;
+    this.OVERHEAT_BARRAGE_FIXED_INTERVAL = 14;
+    this.OVERHEAT_BARRAGE_BULLET_SPEED = 320;
+    this.OVERHEAT_BARRAGE_BULLET_DAMAGE = 24;
     this.OVERHEAT_BARRAGE_MOVE_SPEED = 300;
     this.OVERHEAT_BARRAGE_TARGET_X = ROOM_W * 0.5;
 
@@ -977,24 +1063,22 @@ class Boss2 extends Boss1 {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const len = Math.hypot(dx, dy) || 1;
-    this._spawnProjectile(dx / len, dy / len, this.OVERHEAT_BARRAGE_BULLET_SPEED, this.OVERHEAT_BARRAGE_BULLET_DAMAGE);
+    this._spawnProjectile(dx / len, dy / len, this.OVERHEAT_BARRAGE_BULLET_SPEED, this.OVERHEAT_BARRAGE_BULLET_DAMAGE, 'fire', { ignoreWalls: true });
   }
 
   _fireOverheatBarrageFixedFan() {
-    const dirs = [
-      { x: -1, y: 0 },
-      { x: -0.72, y: 0.72 },
-      { x: 0, y: 1 },
-      { x: 0.72, y: 0.72 },
-      { x: 1, y: 0 },
-    ];
-    for (const dir of dirs) {
-      const len = Math.hypot(dir.x, dir.y) || 1;
+    const volleyIndex = Math.floor(this.tick / this.OVERHEAT_BARRAGE_FIXED_INTERVAL);
+    const step = (Math.PI * 2) / 12;
+    const rotation = volleyIndex * 0.22;
+    for (let i = 0; i < 12; i++) {
+      const angle = rotation + i * step;
       this._spawnProjectile(
-        dir.x / len,
-        dir.y / len,
+        Math.cos(angle),
+        Math.sin(angle),
         this.OVERHEAT_BARRAGE_BULLET_SPEED * 0.93,
-        this.OVERHEAT_BARRAGE_BULLET_DAMAGE
+        this.OVERHEAT_BARRAGE_BULLET_DAMAGE,
+        'fire',
+        { ignoreWalls: true }
       );
     }
   }
@@ -1132,6 +1216,8 @@ class Boss2 extends Boss1 {
       this._hitApplied = true;
       this._lastPattern = 'flameLine';
       this._flameLineCooldown = this.FLAME_LINE_COOLDOWN_FRAMES;
+    }
+    if (this.tick === 1 || this.tick % this.FLAME_LINE_PULSE_INTERVAL === 0) {
       const rect = this._getFlameLineRect();
       this._checkHitbox(rect.cx - this.x, rect.w, rect.h, this.FLAME_LINE_DAMAGE);
       addVfx({
@@ -1142,8 +1228,8 @@ class Boss2 extends Boss1 {
         h: rect.h,
         rot:0,
         color:'#ff5a1f',
-        dur:0.25,
-        alpha:0.45,
+        dur:0.18,
+        alpha:0.42,
         t:0,
       });
     }
@@ -1252,56 +1338,57 @@ class Boss3 extends Boss1 {
   constructor(x, y, callbacks = {}) {
     super(x, y, callbacks);
     this.displayName = 'Fleeing Youth';
-    this.hp = 900; this.maxHp = 900;
+    this.hp = 1900; this.maxHp = 1900;
     this.color = '#8b63d1'; this.baseColor = '#8b63d1';
+    this._spriteKey = 'boss3';
     this.APPROACH_SPEED = 230;
     this.DASH_SPEED = 980;
     this.CD_FRAMES = 54;
     this.P2_SPEED_MUL = 1.35;
 
-    this.SMOKE_CLOUD_TELEGRAPH_FRAMES = 36;
-    this.SMOKE_CLOUD_ACTIVE_FRAMES = 180;
-    this.SMOKE_CLOUD_RECOVERY_FRAMES = 24;
-    this.SMOKE_CLOUD_COOLDOWN_FRAMES = 210;
-    this.SMOKE_CLOUD_RADIUS = 118;
-    this.SMOKE_CLOUD_TICK_INTERVAL = 30;
-    this.SMOKE_CLOUD_TICK_DAMAGE = 6;
-    this.SMOKE_CLOUD_TICK_SMOKE_GAIN = 4;
+    this.SMOKE_CLOUD_TELEGRAPH_FRAMES = 28;
+    this.SMOKE_CLOUD_ACTIVE_FRAMES = 240;
+    this.SMOKE_CLOUD_RECOVERY_FRAMES = 18;
+    this.SMOKE_CLOUD_COOLDOWN_FRAMES = 132;
+    this.SMOKE_CLOUD_RADIUS = 170;
+    this.SMOKE_CLOUD_TICK_INTERVAL = 20;
+    this.SMOKE_CLOUD_TICK_DAMAGE = 8;
+    this.SMOKE_CLOUD_TICK_SMOKE_GAIN = 3;
 
-    this.CHOKING_RING_TELEGRAPH_FRAMES = 45;
-    this.CHOKING_RING_ATTACK_FRAMES = 10;
-    this.CHOKING_RING_RECOVERY_FRAMES = 30;
-    this.CHOKING_RING_COOLDOWN_FRAMES = 210;
-    this.CHOKING_RING_RADIUS = 132;
-    this.CHOKING_RING_DAMAGE = 26;
-    this.CHOKING_RING_SMOKE_GAIN = 8;
+    this.CHOKING_RING_TELEGRAPH_FRAMES = 34;
+    this.CHOKING_RING_ATTACK_FRAMES = 12;
+    this.CHOKING_RING_RECOVERY_FRAMES = 20;
+    this.CHOKING_RING_COOLDOWN_FRAMES = 120;
+    this.CHOKING_RING_RADIUS = 300;
+    this.CHOKING_RING_DAMAGE = 42;
+    this.CHOKING_RING_SMOKE_GAIN = 7;
     this.CHOKING_RING_MIN_CAST_RANGE = 120;
 
-    this.BLIND_SHOT_TELEGRAPH_FRAMES = 24;
+    this.BLIND_SHOT_TELEGRAPH_FRAMES = 18;
     this.BLIND_SHOT_FIRE_FRAMES = 6;
-    this.BLIND_SHOT_RECOVERY_FRAMES = 24;
-    this.BLIND_SHOT_COOLDOWN_FRAMES = 135;
-    this.BLIND_SHOT_MIN_CAST_RANGE = 170;
-    this.BLIND_SHOT_BULLET_SPEED = 240;
-    this.BLIND_SHOT_DAMAGE = 14;
-    this.BLIND_SHOT_RADIUS = 6;
+    this.BLIND_SHOT_RECOVERY_FRAMES = 18;
+    this.BLIND_SHOT_COOLDOWN_FRAMES = 84;
+    this.BLIND_SHOT_MIN_CAST_RANGE = 180;
+    this.BLIND_SHOT_BULLET_SPEED = 360;
+    this.BLIND_SHOT_DAMAGE = 22;
+    this.BLIND_SHOT_RADIUS = 7;
     this.BLIND_SHOT_COLOR = '#cfc6f2';
 
     this.SMOKE_FLOOD_TRIGGER_RATIO = 0.5;
-    this.SMOKE_FLOOD_ENTER_FRAMES = 30;
-    this.SMOKE_FLOOD_ATTACK_FRAMES = 180;
-    this.SMOKE_FLOOD_EXIT_FRAMES = 30;
-    this.SMOKE_FLOOD_WAVE_INTERVAL = 45;
-    this.SMOKE_FLOOD_CLOUD_ACTIVE_FRAMES = 90;
-    this.SMOKE_FLOOD_TICK_INTERVAL = 30;
-    this.SMOKE_FLOOD_TICK_DAMAGE = 5;
-    this.SMOKE_FLOOD_TICK_SMOKE_GAIN = 4;
-    this.SMOKE_FLOOD_RADIUS = 98;
-    this.SMOKE_FLOOD_MOVE_SPEED = 90;
+    this.SMOKE_FLOOD_ENTER_FRAMES = 24;
+    this.SMOKE_FLOOD_ATTACK_FRAMES = 240;
+    this.SMOKE_FLOOD_EXIT_FRAMES = 24;
+    this.SMOKE_FLOOD_WAVE_INTERVAL = 30;
+    this.SMOKE_FLOOD_CLOUD_ACTIVE_FRAMES = 126;
+    this.SMOKE_FLOOD_TICK_INTERVAL = 20;
+    this.SMOKE_FLOOD_TICK_DAMAGE = 7;
+    this.SMOKE_FLOOD_TICK_SMOKE_GAIN = 2;
+    this.SMOKE_FLOOD_RADIUS = 136;
+    this.SMOKE_FLOOD_MOVE_SPEED = 120;
 
-    this.PLAYER_ZONE_STABLE_RANGE = 44;
-    this.PLAYER_ZONE_STABLE_TRIGGER_FRAMES = 84;
-    this.SMOKE_CLOUD_CAST_RANGE = 230;
+    this.PLAYER_ZONE_STABLE_RANGE = 56;
+    this.PLAYER_ZONE_STABLE_TRIGGER_FRAMES = 48;
+    this.SMOKE_CLOUD_CAST_RANGE = 420;
 
     this._smokeCloudCooldown = 120;
     this._chokingRingCooldown = 110;
@@ -1603,16 +1690,20 @@ class Boss3 extends Boss1 {
 
   _fireBlindShot() {
     const from = this._getBodyCenter();
-    Projectiles.add(new EnemyProjectile(
-      from.x,
-      from.y,
-      this._blindShotDir.x,
-      this._blindShotDir.y,
-      this.BLIND_SHOT_BULLET_SPEED,
-      this.BLIND_SHOT_DAMAGE,
-      this.BLIND_SHOT_COLOR,
-      this.BLIND_SHOT_RADIUS
-    ));
+    const baseAngle = Math.atan2(this._blindShotDir.y, this._blindShotDir.x);
+    for (const offset of [-0.16, 0, 0.16]) {
+      const angle = baseAngle + offset;
+      Projectiles.add(new EnemyProjectile(
+        from.x,
+        from.y,
+        Math.cos(angle),
+        Math.sin(angle),
+        this.BLIND_SHOT_BULLET_SPEED,
+        this.BLIND_SHOT_DAMAGE,
+        this.BLIND_SHOT_COLOR,
+        this.BLIND_SHOT_RADIUS
+      ));
+    }
   }
 
   _handleBlindShotTelegraph() {
@@ -1658,15 +1749,24 @@ class Boss3 extends Boss1 {
     const maxX = ROOM_W - TILE - this.SMOKE_FLOOD_RADIUS;
     const y = FLOOR_Y - this.SMOKE_FLOOD_RADIUS * 0.35;
     const laneXs = [
-      ROOM_W * 0.22,
-      ROOM_W * 0.5,
-      ROOM_W * 0.78,
+      ROOM_W * 0.18,
+      ROOM_W * 0.4,
+      ROOM_W * 0.62,
+      ROOM_W * 0.84,
     ].map((x) => clamp(x, minX, maxX));
-    const waveOffsets = [0, this.SMOKE_FLOOD_WAVE_INTERVAL, this.SMOKE_FLOOD_WAVE_INTERVAL * 2];
+    const waveOffsets = [
+      0,
+      this.SMOKE_FLOOD_WAVE_INTERVAL,
+      this.SMOKE_FLOOD_WAVE_INTERVAL * 2,
+      this.SMOKE_FLOOD_WAVE_INTERVAL * 3,
+      this.SMOKE_FLOOD_WAVE_INTERVAL * 4,
+    ];
     const patterns = [
-      [0, 1],
-      [1, 2],
       [0, 2],
+      [1, 3],
+      [0, 1, 3],
+      [0, 2, 3],
+      [1, 2],
     ];
     const zones = [];
     for (let i = 0; i < waveOffsets.length; i++) {
@@ -1745,6 +1845,14 @@ class Boss3 extends Boss1 {
       const alpha = this.state === 'smokeCloudActive'
         ? 0.22
         : (0.08 + 0.14 * clamp(this.tick / this.SMOKE_CLOUD_TELEGRAPH_FRAMES, 0, 1));
+      const sprite = BossSpriteAssets.smokeCloud;
+      if (sprite && sprite.loaded && !sprite.failed) {
+        const size = this.SMOKE_CLOUD_RADIUS * 2;
+        ctx.save();
+        ctx.globalAlpha = alpha + 0.18;
+        ctx.drawImage(sprite.img, s.x - size / 2, s.y - size / 2, size, size);
+        ctx.restore();
+      } else {
       ctx.save();
       ctx.fillStyle = this.state === 'smokeCloudActive'
         ? `rgba(128, 108, 148, ${alpha})`
@@ -1760,6 +1868,7 @@ class Boss3 extends Boss1 {
       ctx.arc(s.x, s.y, this.SMOKE_CLOUD_RADIUS, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
+      }
     }
 
     if (this.state === 'chokingRingTelegraph' || this.state === 'chokingRingAttack') {
@@ -1816,6 +1925,20 @@ class Boss3 extends Boss1 {
           attackTick >= zone.telegraphStart &&
           attackTick < zone.activeStart;
         if (!isActive && !isTelegraph) continue;
+        const sprite = BossSpriteAssets.smokeCloud;
+        if (sprite && sprite.loaded && !sprite.failed) {
+          ctx.save();
+          ctx.globalAlpha = isActive ? 0.24 : 0.14;
+          ctx.drawImage(
+            sprite.img,
+            s.x - this.SMOKE_FLOOD_RADIUS,
+            s.y - this.SMOKE_FLOOD_RADIUS,
+            this.SMOKE_FLOOD_RADIUS * 2,
+            this.SMOKE_FLOOD_RADIUS * 2
+          );
+          ctx.restore();
+          continue;
+        }
         ctx.save();
         ctx.fillStyle = isActive
           ? 'rgba(122, 102, 146, 0.22)'
@@ -1870,6 +1993,7 @@ class BossFinal extends Boss {
     this.hp = 2000; this.maxHp = 2000;
     this.hw = 20; this.height = 64;
     this.color = '#d04010'; this.baseColor = '#d04010';
+    this._spriteKey = 'finalBoss';
 
     this.PHASE2_HP = 0.66;
     this.PHASE3_HP = 0.33;
@@ -1883,7 +2007,7 @@ class BossFinal extends Boss {
     this.P1_COMBO_W = 52; this.P1_COMBO_H = 48;
     this.P1_COMBO_HITS  = 3;
     this.P1_HIT_INTERVAL = 10;
-    this.P1_RANGE       = 80;
+    this.P1_RANGE       = 160;
     this.P1_COOLDOWN    = 80;
 
     this.P2_AXE_COUNT   = 3;
@@ -1892,11 +2016,11 @@ class BossFinal extends Boss {
     this.P2_AXE_DMG     = 70;
     this.P2_PROJ_DMG    = 65;
     this.P2_PROJ_SPEED  = 380;
-    this.P2_RANGE       = 200;
+    this.P2_RANGE       = 360;
     this.P2_COOLDOWN    = 90;
 
     this.P3_BURST_DMG    = 120;
-    this.P3_BURST_RADIUS = 100;
+    this.P3_BURST_RADIUS = 150;
     this.P3_BURST_JUMP   = -550;
     this.P3_COOLDOWN     = 55;
 
@@ -1922,10 +2046,11 @@ class BossFinal extends Boss {
     this._burstDone   = false;
     this._dashDone    = false;
     this._pendingFinalBarrages = [];
-    this._activeFinalBarrageThreshold = null;
-    this._barrageEnterFromX = x;
-    this._barrageEnterFromY = y;
-    this._barrageRecoverX = x;
+      this._activeFinalBarrageThreshold = null;
+      this._barrageEnterFromX = x;
+      this._barrageEnterFromY = y;
+      this._barrageRecoverX = x;
+      this._barrageRecoverY = y;
 
     this._initHpThresholds(this.FINAL_BARRAGE_THRESHOLDS);
   }
@@ -1960,23 +2085,25 @@ class BossFinal extends Boss {
     return amount;
   }
 
-  _checkPhaseTransition() {
-    const ratio = this.hp / this.maxHp;
-    let newPhase = this._phase;
-    if (ratio <= this.PHASE3_HP)      newPhase = 3;
-    else if (ratio <= this.PHASE2_HP) newPhase = 2;
-    if (newPhase !== this._phase) {
-      this._phase = newPhase;
-      this._changeState('approach');
-      // ?섏씠利??꾪솚 ?쒓컖
-      addVfx({ type:'circle', x: this.x, y: this.y - 32,
-               r: 80, color: newPhase===3?'#ff2020':'#ff8020',
-               dur: 0.5, alpha: 0.6, t: 0 });
+    _checkPhaseTransition() {
+      const ratio = this.hp / this.maxHp;
+      let newPhase = this._phase;
+      if (ratio <= this.PHASE3_HP)      newPhase = 3;
+      else if (ratio <= this.PHASE2_HP) newPhase = 2;
+      if (newPhase !== this._phase) {
+        this._phase = newPhase;
+        if (this.state === 'attack')
+          this._changeState('approach');
+        // ?섏씠利??꾪솚 ?쒓컖
+        addVfx({ type:'circle', x: this.x, y: this.y - 32,
+                 r: 80, color: newPhase===3?'#ff2020':'#ff8020',
+                 dur: 0.5, alpha: 0.6, t: 0 });
+      }
     }
-  }
 
-  _onStateEntered(s) {
-    if (s === 'approach') this.vx = 0;
+    _onStateEntered(s) {
+      super._onStateEntered(s);
+      if (s === 'approach') this.vx = 0;
     if (s === 'finalBarrageEnter') {
       this.vx = 0;
       this.vy = 0;
@@ -2043,14 +2170,15 @@ class BossFinal extends Boss {
       this.state === 'finalBarrageExit';
   }
 
-  _startNextFinalBarrage() {
-    if (this._isFinalBarrageState()) return false;
-    if (this._pendingFinalBarrages.length <= 0) return false;
-    this._activeFinalBarrageThreshold = this._pendingFinalBarrages.shift();
-    this._barrageRecoverX = this.x;
-    this._changeState('finalBarrageEnter');
-    return true;
-  }
+    _startNextFinalBarrage() {
+      if (this._isFinalBarrageState()) return false;
+      if (this._pendingFinalBarrages.length <= 0) return false;
+      this._activeFinalBarrageThreshold = this._pendingFinalBarrages.shift();
+      this._barrageRecoverX = this.x;
+      this._barrageRecoverY = this.y;
+      this._changeState('finalBarrageEnter');
+      return true;
+    }
 
   _processFinalBarrageState() {
     switch (this.state) {
@@ -2083,18 +2211,18 @@ class BossFinal extends Boss {
       this._changeState('finalBarrageExit');
   }
 
-  _handleFinalBarrageExit() {
-    this.vx = 0;
-    this.vy = 0;
-    const t = Math.min(this.tick / this.FINAL_BARRAGE_EXIT_FRAMES, 1);
-    this.x = lerp(this.FINAL_BARRAGE_TARGET_X, this._barrageRecoverX, t);
-    this.y = lerp(this.FINAL_BARRAGE_TARGET_Y, this._combatFloorY, t);
-    if (this.tick >= this.FINAL_BARRAGE_EXIT_FRAMES) {
-      this.x = this._barrageRecoverX;
-      this.y = this._combatFloorY;
-      if (!this._startNextFinalBarrage())
-        this._changeState('approach');
-    }
+    _handleFinalBarrageExit() {
+      this.vx = 0;
+      this.vy = 0;
+      const t = Math.min(this.tick / this.FINAL_BARRAGE_EXIT_FRAMES, 1);
+      this.x = lerp(this.FINAL_BARRAGE_TARGET_X, this._barrageRecoverX, t);
+      this.y = lerp(this.FINAL_BARRAGE_TARGET_Y, this._barrageRecoverY, t);
+      if (this.tick >= this.FINAL_BARRAGE_EXIT_FRAMES) {
+        this.x = this._barrageRecoverX;
+        this.y = this._barrageRecoverY;
+        if (!this._startNextFinalBarrage())
+          this._changeState('approach');
+      }
   }
 
   _getFinalBarrageTier() {

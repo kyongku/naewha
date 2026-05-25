@@ -164,12 +164,15 @@ class Ember extends Enemy {
 
     this.DETECT = 256;
     this.DASH_SPEED = 500;
-    this.DASH_DMG   = 90;
+    this.DASH_DMG   = 55;
     this.STARTUP    = 12;
     this.RECOVERY   = 72;
+    this.MAX_DASH_DISTANCE = 260;
 
     this._dashDir  = { x:0, y:0 };
     this._hasHit   = false;
+    this._dashStartX = x;
+    this._dashStartY = y;
   }
 
   _applyGravity() {
@@ -188,6 +191,8 @@ class Ember extends Enemy {
     if (s === 'chase')  { this.vx = 0; }
     if (s === 'attack') {
       this._hasHit = false;
+      this._dashStartX = this.x;
+      this._dashStartY = this.y;
       if (this._player) {
         const d = norm(this._player.x - this.x, this._player.y - this.y);
         this._dashDir = d;
@@ -209,6 +214,9 @@ class Ember extends Enemy {
       case 'attack':
         this.vx = this._dashDir.x * this.DASH_SPEED;
         this.vy = this._dashDir.y * this.DASH_SPEED;
+        const dashDx = this.x - this._dashStartX;
+        const dashDy = this.y - this._dashStartY;
+        const dashTravel = Math.hypot(dashDx, dashDy);
         // 플레이어 피격 체크
         if (!this._hasHit && this._player) {
           const pr = eRect(this._player);
@@ -218,7 +226,7 @@ class Ember extends Enemy {
             this._hasHit = true;
           }
         }
-        if (this._hasHit || this.onWall || this.onCeil ||
+        if (this._hasHit || dashTravel >= this.MAX_DASH_DISTANCE || this.onWall || this.onCeil ||
             (this.onFloor && this._dashDir.y >= 0)) {
           this.vx = 0; this.vy = 0;
           this._stunFrames = this.RECOVERY;
@@ -294,15 +302,18 @@ class MirrorShard extends Enemy {
 
   _fire() {
     const isShotgun = this.hp / this.maxHp <= this.SHOTGUN_HP;
-    const d = this._dirToPlayer();
+    const toPlayer = this._player
+      ? norm(this._player.x - this.x, (this._player.y - this._player.height * 0.5) - (this.y - 20))
+      : { x: this._dirToPlayer(), y: 0 };
 
     if (isShotgun) {
       this._shootCd = this.CD_SHOTGUN;
-      for (const [dx, dy] of [[d,0],[d,-1],[d,1]]) {
-        const nd = norm(dx, dy);
+      const base = Math.atan2(toPlayer.y, toPlayer.x);
+      for (const deg of [-16, 0, 16]) {
+        const angle = base + deg * Math.PI / 180;
         Projectiles.add(new EnemyProjectile(
           this.x, this.y - 20,
-          nd.x, nd.y,
+          Math.cos(angle), Math.sin(angle),
           this.PROJ_SPEED, this.DMG_SHOTGUN,
           '#a0d8f0', 5
         ));
@@ -311,7 +322,7 @@ class MirrorShard extends Enemy {
       this._shootCd = this.CD_NORMAL;
       Projectiles.add(new EnemyProjectile(
         this.x, this.y - 20,
-        d, 0,
+        toPlayer.x, toPlayer.y,
         this.PROJ_SPEED, this.DMG_NORMAL,
         '#80c0e0', 5
       ));
@@ -376,7 +387,11 @@ class Golem extends Enemy {
   _handleChase() {
     this.vx = this._dirToPlayer() * this.CHASE_SPEED;
     const d = this._distToPlayer();
+    const verticalGap = this._player
+      ? Math.abs((this._player.y - this._player.height / 2) - (this.y - this.height / 2))
+      : 0;
     if (d > this.DETECT) { this._changeState('patrol'); return; }
+    if (verticalGap > 72) return;
     if (d <= this.PUSH_RANGE && this._pushCd <= 0) {
       this._attackType = 'push'; this._changeState('attack'); return;
     }

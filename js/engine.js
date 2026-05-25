@@ -40,15 +40,44 @@ const Input = {
   mouseSY: 0,
   mb: {},
   mbPressed: {},
+  _capturedCodes: new Set([
+    'Space',
+    'ShiftLeft', 'ShiftRight',
+    'KeyW', 'KeyA', 'KeyS', 'KeyD',
+    'Digit1', 'Digit2', 'Digit3',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+  ]),
 
+  _isEditableTarget(target) {
+    if (!target || typeof target !== 'object') return false;
+    const tag = typeof target.tagName === 'string' ? target.tagName.toUpperCase() : '';
+    return !!target.isContentEditable ||
+      tag === 'INPUT' ||
+      tag === 'TEXTAREA' ||
+      tag === 'SELECT';
+  },
+
+  _isDebugCapturedCode(code) {
+    if (!['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'].includes(code)) return false;
+    return typeof window === 'object' && !!window.NAEHWA_DEBUG_MODE;
+  },
+
+  _shouldPreventKeyDefault(e) {
+    return (Input._capturedCodes.has(e.code) || Input._isDebugCapturedCode(e.code)) &&
+      !Input._isEditableTarget(e.target);
+  },
+  
   init(canvas) {
+    canvas.tabIndex = 0;
     window.addEventListener('keydown', e => {
+      if (Input._shouldPreventKeyDefault(e))
+        e.preventDefault();
       if (!Input.keys[e.code]) Input.pressed[e.code] = true;
       Input.keys[e.code] = true;
-      if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))
-        e.preventDefault();
     });
     window.addEventListener('keyup', e => {
+      if (Input._shouldPreventKeyDefault(e))
+        e.preventDefault();
       Input.keys[e.code] = false;
       Input.released[e.code] = true;
     });
@@ -61,11 +90,15 @@ const Input = {
       Input.mouseWX = w.x; Input.mouseWY = w.y;
     });
     canvas.addEventListener('mousedown', e => {
+      canvas.focus?.();
       Input.mb[e.button] = true;
       Input.mbPressed[e.button] = true;
       e.preventDefault();
     });
-    canvas.addEventListener('mouseup', e => { Input.mb[e.button] = false; });
+    canvas.addEventListener('mouseup', e => {
+      Input.mb[e.button] = false;
+      e.preventDefault();
+    });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
   },
 
@@ -88,7 +121,8 @@ const Camera = {
   x: 0, y: 0,
   vw: 960, vh: 576,
   rw: 1920, rh: 576,
-
+  scale: 1,
+  
   snap(ex, ey) {
     this.x = clamp(ex - this.vw/2, 0, this.rw - this.vw);
     this.y = clamp(ey - 32 - this.vh/2, 0, Math.max(0, this.rh - this.vh));
@@ -96,11 +130,16 @@ const Camera = {
   follow(ex, ey) {
     const tx = clamp(ex - this.vw/2, 0, this.rw - this.vw);
     const ty = clamp(ey - 32 - this.vh/2, 0, Math.max(0, this.rh - this.vh));
-    this.x = lerp(this.x, tx, 0.12);
-    this.y = lerp(this.y, ty, 0.12);
+      this.x = lerp(this.x, tx, 0.12);
+      this.y = lerp(this.y, ty, 0.12);
+    },
+    toWorld(sx, sy)  {
+      const inv = this.scale > 0 ? 1 / this.scale : 1;
+      return { x: sx * inv + this.x, y: sy * inv + this.y };
+    },
+  toScreen(wx, wy) {
+    return { x: (wx - this.x) * this.scale, y: (wy - this.y) * this.scale };
   },
-  toWorld(sx, sy)  { return { x: sx + this.x, y: sy + this.y }; },
-  toScreen(wx, wy) { return { x: wx - this.x, y: wy - this.y }; },
 };
 
 // ?? 臾쇰━ ?ㅽ뀦 ?꾩궛湲???????????????????????????????????

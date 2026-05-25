@@ -3,6 +3,10 @@
 // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧??
 // ?? HP 援ш컙 ???????????????????????????????????????????
 const HP_PHASE = { NORMAL: 0, FIRE: 1, FIREMAN: 2 };
+const PHASE_THRESHOLD_RATIOS = {
+  FIREMAN: 0.3,
+  NORMAL: 0.6,
+};
 const TEMP_COMBAT_FORM = { WATER: 'WATER' };
 // Temporary WATER Heat Mode damage reduction. Final value should be tuned after playtesting.
 const WATER_HEAT_DAMAGE_REDUCTION_RATIO = 0.3;
@@ -136,8 +140,9 @@ const PlayerSpriteAssets = (() => {
     return asset;
   };
   return {
-    idle: makeSprite('assets/sprites/player_idle.png'),
-    attack: makeSprite('assets/sprites/player_attack.png'),
+    idle: makeSprite('assets/sprites/player-idle.svg'),
+    attack: makeSprite('assets/sprites/player-hit.svg'),
+    dash: makeSprite('assets/sprites/player-dash.svg'),
   };
 })();
 
@@ -153,18 +158,18 @@ class ComboSystem {
 
     // Axe-held combo profile.
     this.axeHits = [
-      { startup:3, active:4, recovery:8,  damage:35 },
-      { startup:2, active:4, recovery:8,  damage:40 },
-      { startup:4, active:6, recovery:14, damage:65 },
+      { startup:3, active:4, recovery:9, damage:45 },
+      { startup:3, active:4, recovery:9, damage:45 },
+      { startup:3, active:4, recovery:9, damage:45 },
     ];
     // Faster, weaker fallback when the axe is not in hand.
     this.unarmedHits = [
-      { startup:2, active:3, recovery:5, damage:18 },
       { startup:2, active:3, recovery:5, damage:22 },
-      { startup:3, active:4, recovery:9, damage:30 },
+      { startup:2, active:3, recovery:5, damage:22 },
+      { startup:2, active:3, recovery:5, damage:22 },
     ];
-    this.axeHitCd     = [18, 30, 0];
-    this.unarmedHitCd = [12, 18, 0];
+    this.axeHitCd     = [22, 22, 22];
+    this.unarmedHitCd = [14, 14, 14];
     this.TIMEOUT    = 60;
     this.isActiveNow = false;
     this._attackStyle = 'axe';
@@ -757,7 +762,7 @@ class OxygenSystem {
   constructor(player) {
     this.player       = player;
     this.enabled      = false;
-    this.stacks       = 5;
+    this.stacks       = 0;
     this.MAX_STACKS   = 5;
     this.shieldUnlocked = false;
 
@@ -772,7 +777,7 @@ class OxygenSystem {
 
       this.CHANNEL_DUR      = 1.5;
       // Temporary Heat-to-Oxygen conversion cost. Final value should be tuned after playtesting.
-      this.OXYGEN_HEAT_CONVERSION_COST = 20;
+      this.BASE_OXYGEN_HEAT_CONVERSION_COST = 20;
       this._channeling   = false;
       this._channelTimer = 0;
 
@@ -836,8 +841,9 @@ class OxygenSystem {
       this._channelTimer = 0;
       if (this.stacks >= this.MAX_STACKS) return;
       if (!this.player.heatSys || !this.player.heatSys.enabled) return;
-      if (!this.player.heatSys.canSpendHeat(this.OXYGEN_HEAT_CONVERSION_COST)) return;
-      if (!this.player.heatSys.spendHeat(this.OXYGEN_HEAT_CONVERSION_COST)) return;
+      const cost = this.getHeatToOxygenConversionCost();
+      if (!this.player.heatSys.canSpendHeat(cost)) return;
+      if (!this.player.heatSys.spendHeat(cost)) return;
       this.addStack(1);
     }
   }
@@ -873,6 +879,10 @@ class OxygenSystem {
   isChanneling() { return this._channeling; }
   isBursting()   { return this._bursting; }
   getChannelRatio() { return clamp(this._channelTimer / this.CHANNEL_DUR, 0, 1); }
+  getHeatToOxygenConversionCost() {
+    return this.player?.getRecoveryConfig?.().qHeatCost ??
+      this.BASE_OXYGEN_HEAT_CONVERSION_COST;
+  }
 }
 
 class HeatSystem {
@@ -882,7 +892,8 @@ class HeatSystem {
       this.combatUnlocked = false;
       this.value = 0;
       // Temporary Heat cap for HUD/testing. Final value should be tuned after playtesting.
-      this.maxValue = 150;
+      this.BASE_MAX_VALUE = 150;
+      this.maxValue = this.BASE_MAX_VALUE;
       // Temporary Heat gain rate. Final gain scaling should be tuned after playtesting.
       this.GAIN_PER_DAMAGE = 0.25;
       // Temporary per-form Heat drain values. Final drain should be tuned after playtesting.
@@ -973,6 +984,14 @@ class HeatSystem {
       default: return this.WATER_HEAT_DRAIN_PER_SECOND;
     }
   }
+
+  applyRecoveryConfig(config) {
+    const nextMax = Number.isFinite(config?.heatMaxValue)
+      ? config.heatMaxValue
+      : this.BASE_MAX_VALUE;
+    this.maxValue = nextMax;
+    this.value = clamp(this.value, 0, this.maxValue);
+  }
 }
 
 class SmokeSystem {
@@ -997,7 +1016,7 @@ class SmokeSystem {
     this.SMOKE_HEAL_MULTIPLIER_2 = 0.70;
     // Temporary WATER-form Smoke cleansing rate. Final value should be tuned
     // after playtesting.
-    this.WATER_SMOKE_REDUCTION_PER_SECOND = 8;
+    this.BASE_WATER_SMOKE_REDUCTION_PER_SECOND = 8;
     this.SMOKE_RELEASE_COST = 30;
     this.SMOKE_RELEASE_DAMAGE = 55;
     this.SMOKE_RELEASE_RADIUS = 150;
@@ -1036,7 +1055,7 @@ class SmokeSystem {
     if (this._releaseCooldown > 0)
       this._releaseCooldown = Math.max(this._releaseCooldown - dt, 0);
     if (this.player.getCurrentCombatForm() !== TEMP_COMBAT_FORM.WATER) return;
-    this.reduceSmoke(this.WATER_SMOKE_REDUCTION_PER_SECOND * dt);
+    this.reduceSmoke(this.getWaterSmokeReductionPerSecond() * dt);
   }
 
   canRelease() {
@@ -1078,6 +1097,10 @@ class SmokeSystem {
     return clamp(this._releaseCooldown / this.SMOKE_RELEASE_COOLDOWN, 0, 1);
   }
 
+  getReleaseCdRatio() {
+    return this.getReleaseCooldownRatio();
+  }
+
   getMoveSpeedMultiplier() {
     if (!this.enabled) return 1;
     if (this.value < this.SMOKE_SLOW_THRESHOLD_1) return 1;
@@ -1090,6 +1113,11 @@ class SmokeSystem {
     if (this.value < this.SMOKE_HEAL_REDUCTION_THRESHOLD_1) return 1;
     if (this.value < this.SMOKE_HEAL_REDUCTION_THRESHOLD_2) return this.SMOKE_HEAL_MULTIPLIER_1;
     return this.SMOKE_HEAL_MULTIPLIER_2;
+  }
+
+  getWaterSmokeReductionPerSecond() {
+    return this.player?.getRecoveryConfig?.().waterSmokeReductionPerSecond ??
+      this.BASE_WATER_SMOKE_REDUCTION_PER_SECOND;
   }
 }
 
@@ -1238,7 +1266,8 @@ class Player {
     this.hw = 16; this.height = 64;
 
     // ?섏튂
-    this.MAX_HP       = 1000;
+    this.BASE_MAX_HP  = 1000;
+    this.MAX_HP       = this.BASE_MAX_HP;
     this.baseSpeed    = 200;
     this.JUMP_VEL     = -350;
     this.DJUMP_VEL    = -280;
@@ -1257,11 +1286,12 @@ class Player {
       this.isDead       = false;
       this.invincibleTimer = 0;
       this.dropThroughTimer = 0;
+      this._recoveryConfig = null;
       // Temporary Skill 3 healing values. Final cost, healing, and cooldown
       // should be tuned after playtesting.
       this.SKILL3_OXYGEN_COST = 2;
       this.SKILL3_HEAL_RATIO = 0.25;
-      this.SKILL3_COOLDOWN = 8;
+      this.BASE_SKILL3_COOLDOWN = 8;
       this._skill3Cooldown = 0;
 
     this._hitFlash    = 0;
@@ -1444,19 +1474,22 @@ class Player {
     const attackLen = isUnarmed ? this.UNARMED_ATCK_LEN : this.ATCK_LEN;
     const attackW = isUnarmed ? this.UNARMED_ATCK_W : this.ATCK_W;
     const sourceType = isUnarmed ? 'melee_unarmed' : 'melee';
-    // 洹쇱젒 AABB 泥댄겕 (留덉슦??諛⑺뼢?쇰줈 ?뚯쟾??吏곸궗媛곹삎 ??AABB 洹쇱궗)
+    // Use body overlap so attacks connect when the hitbox reaches the target body.
     const cx = this.x + this._atkDir.x * attackLen * 0.5;
     const cy = (this.y - 32) + this._atkDir.y * attackLen * 0.5;
-    const hw2 = attackLen / 2 + 8, hh2 = attackW / 2 + 8;
+    const hb = {
+      l: cx - (attackLen / 2 + 8),
+      r: cx + (attackLen / 2 + 8),
+      t: cy - (attackW / 2 + 8),
+      b: cy + (attackW / 2 + 8),
+    };
 
     const hits = this._currentEntities;
-      for (const e of hits) {
-        if (e.isDead) continue;
-        const er = eRect(e);
-        const ecx = (er.l + er.r) / 2, ecy = (er.t + er.b) / 2;
-        if (Math.abs(ecx - cx) < hw2 && Math.abs(ecy - cy) < hh2)
-        e.takeDamage(damage, sourceType, this);
-      }
+    for (const e of hits) {
+      if (e.isDead) continue;
+      if (!overlap(hb, eRect(e))) continue;
+      e.takeDamage(damage, sourceType, this);
+    }
     }
 
   // ?? ?쇳빐 諛쏄린 ??????????????????????????????????????
@@ -1474,8 +1507,13 @@ class Player {
       finalDamage *= (1 - WATER_HEAT_DAMAGE_REDUCTION_RATIO);
     }
 
+    const prevHp = this.hp;
     this.hp = Math.max(this.hp - finalDamage, 0);
-    this.smokeSys.gainFromDamage(finalDamage);
+    const appliedDamage = Math.max(prevHp - this.hp, 0);
+    if (appliedDamage > 0) {
+      spawnDmgNum(this.x, this.y - this.height - 20, appliedDamage, '#ffb8a8');
+      this.smokeSys.gainFromDamage(appliedDamage);
+    }
     this._checkPhase();
     if (this.hp <= 0) this._die();
   }
@@ -1493,7 +1531,7 @@ class Player {
     if (!this.oxygenSys.spendStacks(this.SKILL3_OXYGEN_COST)) return false;
     if (this.oxygenSys.isChanneling()) this.oxygenSys.requestChannelStop();
 
-    this._skill3Cooldown = this.SKILL3_COOLDOWN;
+    this._skill3Cooldown = this.getSkill3CooldownDuration();
     const baseHealAmount = this.MAX_HP * this.SKILL3_HEAL_RATIO;
     const finalHealAmount = baseHealAmount * this.smokeSys.getHealMultiplier();
     this.heal(finalHealAmount);
@@ -1525,7 +1563,7 @@ class Player {
     return 'READY';
   }
 
-  activateTemporaryWaterForm(duration) {
+  activateTemporaryWaterForm(duration = this.getTemporaryWaterFormDuration()) {
     if (!Number.isFinite(duration) || duration <= 0) {
       this.temporaryForm = null;
       this.temporaryFormTimer = 0;
@@ -1540,11 +1578,38 @@ class Player {
     return this.temporaryForm || this.phase;
   }
 
+  setRecoveryConfig(config) {
+    this._recoveryConfig = config || null;
+    const nextMaxHp = this.BASE_MAX_HP + (Number.isFinite(this._recoveryConfig?.maxHpBonus)
+      ? this._recoveryConfig.maxHpBonus
+      : 0);
+    this.MAX_HP = nextMaxHp;
+    this.hp = clamp(this.hp, 0, this.MAX_HP);
+    this.heatSys.applyRecoveryConfig(this._recoveryConfig);
+  }
+
+  getRecoveryConfig() {
+    return this._recoveryConfig || {};
+  }
+
+  getPhaseThresholdRatios() {
+    return [PHASE_THRESHOLD_RATIOS.FIREMAN, PHASE_THRESHOLD_RATIOS.NORMAL];
+  }
+
+  getSkill3CooldownDuration() {
+    return this.getRecoveryConfig().skill3Cooldown ?? this.BASE_SKILL3_COOLDOWN;
+  }
+
+  getTemporaryWaterFormDuration() {
+    return this.getRecoveryConfig().waterDuration ?? 5;
+  }
+
   _checkPhase() {
+    const hpRatio = this.MAX_HP > 0 ? this.hp / this.MAX_HP : 0;
     let np;
-    if (this.hp > 600)      np = HP_PHASE.NORMAL;
-    else if (this.hp > 300) np = HP_PHASE.FIRE;
-    else                    np = HP_PHASE.FIREMAN;
+    if (hpRatio > PHASE_THRESHOLD_RATIOS.NORMAL)      np = HP_PHASE.NORMAL;
+    else if (hpRatio > PHASE_THRESHOLD_RATIOS.FIREMAN) np = HP_PHASE.FIRE;
+    else                                               np = HP_PHASE.FIREMAN;
     this.phase = np;
   }
 
@@ -1572,7 +1637,125 @@ class Player {
   }
 
   _getCurrentSpriteAsset() {
+    if (this.dashSys.isDashing()) return PlayerSpriteAssets.dash;
     return this._isAttackPoseActive() ? PlayerSpriteAssets.attack : PlayerSpriteAssets.idle;
+  }
+
+  _getFormVisualStyle() {
+    const form = this.getCurrentCombatForm();
+    const heatBoost = this.heatSys.isFormHeatModeActive() ? 1.2 : 1;
+    switch (form) {
+      case HP_PHASE.FIRE:
+        return {
+          body: '#8c4430',
+          glow: '#ff6a24',
+          outline: '#ffb06a',
+          fill: '#ff7d36',
+          tint: '#ff6a32',
+          bodyOverlay: '#ff8b52',
+          glowAlpha: 0.18 * heatBoost,
+          outlineAlpha: 0.9,
+          fillAlpha: 0.08 * heatBoost,
+          tintAlpha: 0.46 * heatBoost,
+          bodyOverlayAlpha: 0.32 * heatBoost,
+          waterShield: false,
+        };
+      case HP_PHASE.FIREMAN:
+        return {
+          body: '#2c6572',
+          glow: '#36c8ff',
+          outline: '#9ae8ff',
+          fill: '#4fd8ff',
+          tint: '#36c8ff',
+          bodyOverlay: '#72e1ff',
+          glowAlpha: 0.18 * heatBoost,
+          outlineAlpha: 0.88,
+          fillAlpha: 0.06 * heatBoost,
+          tintAlpha: 0.42 * heatBoost,
+          bodyOverlayAlpha: 0.28 * heatBoost,
+          waterShield: false,
+        };
+      case TEMP_COMBAT_FORM.WATER:
+        return {
+          body: '#2b4f7e',
+          glow: '#58b8ff',
+          outline: '#d2f1ff',
+          fill: '#8fd8ff',
+          tint: '#4aa8ff',
+          bodyOverlay: '#96dbff',
+          glowAlpha: 0.16 * heatBoost,
+          outlineAlpha: 0.78,
+          fillAlpha: 0.08 * heatBoost,
+          tintAlpha: 0.44 * heatBoost,
+          bodyOverlayAlpha: 0.3 * heatBoost,
+          waterShield: true,
+        };
+      default:
+        return {
+          body: '#4a4f5d',
+          glow: '#ffffff',
+          outline: '#ffffff',
+          fill: '#ffffff',
+          tint: '#7c8496',
+          glowAlpha: 0,
+          outlineAlpha: 0,
+          fillAlpha: 0,
+          tintAlpha: 0,
+          bodyOverlay: '#7c8496',
+          bodyOverlayAlpha: 0,
+          waterShield: false,
+        };
+    }
+  }
+
+  _drawFormAura(ctx, sx, sy, style) {
+    if (!style || (style.glowAlpha <= 0 && !style.waterShield)) return;
+    const centerY = sy - this.height / 2;
+    const heatBoost = this.heatSys.isFormHeatModeActive();
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    if (style.glowAlpha > 0) {
+      ctx.fillStyle = style.glow;
+      ctx.globalAlpha = style.glowAlpha;
+      ctx.beginPath();
+      ctx.ellipse(
+        sx,
+        centerY,
+        this.hw + (heatBoost ? 13 : 10),
+        this.height / 2 + (heatBoost ? 11 : 8),
+        0,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+    }
+    if (style.waterShield) {
+      ctx.strokeStyle = style.outline;
+      ctx.globalAlpha = 0.42 + (heatBoost ? 0.08 : 0);
+      ctx.lineWidth = heatBoost ? 3 : 2;
+      ctx.beginPath();
+      ctx.ellipse(sx, centerY, this.hw + 8, this.height / 2 + 6, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  _drawFormOverlay(ctx, sx, sy, style) {
+    if (!style || (style.outlineAlpha <= 0 && style.fillAlpha <= 0)) return;
+    ctx.save();
+    if (style.fillAlpha > 0) {
+      ctx.fillStyle = style.fill;
+      ctx.globalAlpha = style.fillAlpha;
+      ctx.fillRect(sx - this.hw - 1, sy - this.height - 1, this.hw * 2 + 2, this.height + 2);
+    }
+    if (style.outlineAlpha > 0) {
+      ctx.strokeStyle = style.outline;
+      ctx.globalAlpha = style.outlineAlpha;
+      ctx.lineWidth = style.waterShield ? 2 : 2.5;
+      ctx.strokeRect(sx - this.hw - 1, sy - this.height - 1, this.hw * 2 + 2, this.height + 2);
+    }
+    ctx.restore();
   }
 
   _drawFallbackBody(ctx, sx, sy, color) {
@@ -1591,7 +1774,7 @@ class Player {
     ctx.lineWidth = 1;
   }
 
-  _drawSpriteBody(ctx, sx, sy) {
+  _drawSpriteBody(ctx, sx, sy, style) {
     const asset = this._getCurrentSpriteAsset();
     if (!asset || !asset.loaded || asset.failed) return false;
 
@@ -1599,6 +1782,23 @@ class Player {
     ctx.translate(sx, sy - this.height / 2);
     ctx.scale(this.facing >= 0 ? 1 : -1, 1);
     ctx.drawImage(asset.img, -this._spriteW / 2, -this._spriteH / 2, this._spriteW, this._spriteH);
+    if (style && style.tintAlpha > 0) {
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = style.tintAlpha;
+      ctx.fillStyle = this._hitFlash > 0 ? '#ffffff' : style.tint;
+      ctx.fillRect(-this._spriteW / 2, -this._spriteH / 2, this._spriteW, this._spriteH);
+      if (style.bodyOverlayAlpha > 0) {
+        const torsoW = this._spriteW * 0.54;
+        const torsoH = this._spriteH * 0.52;
+        const torsoX = -torsoW / 2;
+        const torsoY = -this._spriteH * 0.02;
+        ctx.globalAlpha = style.bodyOverlayAlpha;
+        ctx.fillStyle = this._hitFlash > 0 ? '#ffffff' : style.bodyOverlay;
+        ctx.fillRect(torsoX, torsoY, torsoW, torsoH);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
     ctx.restore();
     return true;
   }
@@ -1621,11 +1821,13 @@ class Player {
       ctx.lineWidth = 1;
     }
 
-      // 紐명넻
-      const color = PHASE_COLORS[this.phase];
-      if (!this._drawSpriteBody(ctx, sx, sy)) {
+      const formStyle = this._getFormVisualStyle();
+      const color = formStyle.body ?? PHASE_COLORS[this.phase];
+      this._drawFormAura(ctx, sx, sy, formStyle);
+      if (!this._drawSpriteBody(ctx, sx, sy, formStyle)) {
         this._drawFallbackBody(ctx, sx, sy, color);
       }
+      this._drawFormOverlay(ctx, sx, sy, formStyle);
 
       // ?쇨뎬 諛⑺뼢 ?쒖떆
       ctx.fillStyle = '#fff';

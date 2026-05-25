@@ -82,8 +82,15 @@ class Room {
     this.cleared = true;
     for (const d of this.doors) {
       if (d.side === 'right') d.unlock();
+      if (this.isBoss && d.side === 'left') d.unlock();
     }
     this.onCleared?.(this);
+  }
+
+  isBossFightLocked() {
+    if (!this.isBoss || !this.fightStarted || this.cleared) return false;
+    const boss = this.entities[0];
+    return !!boss && !boss.isDead;
   }
 
   checkBossTrigger(player) {
@@ -122,10 +129,13 @@ class Room {
 function makeRoom1() {
   const geo = [
     ...commonGeo(false),
+    platTile(256, 472, 192, 24),
     platTile(432, 416, 288, 24),
-    platTile(1200, 336, 384, 24),
+    platTile(860, 400, 224, 24),
+    platTile(1120, 360, 432, 24),
     platTile(1584, 416, 240, 24),
-    platTile(2100, 416, 288, 24),
+    platTile(1840, 384, 224, 24),
+    platTile(2140, 432, 320, 24),
   ];
   const doors = [
     new Door(0, 64, TILE, FLOOR_Y - 64, 'left'),
@@ -211,8 +221,21 @@ function makeMobRoom(id, variant) {
 function makeBossRoomById(id) {
   const bossPlatforms = {
     room_2: [
-      platTile(980, 430, 220, 24),
-      platTile(1480, 356, 340, 24),
+      platTile(760, 472, 240, 24),
+      platTile(1120, 428, 280, 24),
+      platTile(1540, 396, 360, 24),
+    ],
+    room_4: [
+      platTile(700, 472, 240, 24),
+      platTile(1080, 412, 280, 24),
+      platTile(1520, 360, 320, 24),
+      platTile(1980, 428, 260, 24),
+    ],
+    room_6: [
+      platTile(620, 448, 240, 24),
+      platTile(980, 392, 280, 24),
+      platTile(1440, 344, 300, 24),
+      platTile(1900, 408, 280, 24),
     ],
   };
   const geo = [...commonGeo(false), ...(bossPlatforms[id] || [])];

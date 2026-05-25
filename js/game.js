@@ -2,7 +2,11 @@
 // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧??// game.js  ?? GameManager, HUD, ??愿由? 硫붿씤 猷⑦봽
 // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧??
 // ?? HUD ???????????????????????????????????????????????
-const DEBUG_MODE = true; // Set to false before shipping builds.
+const DEBUG_MODE = false; // Set to true for local debug/test builds.
+window.NAEHWA_DEBUG_MODE = DEBUG_MODE;
+const HUD_PANEL_HEIGHT = 96;
+const GAMEPLAY_HEIGHT = 576 - HUD_PANEL_HEIGHT;
+const WORLD_RENDER_SCALE = 0.88;
 
 const HUD = {
   _bossVisible: false,
@@ -74,175 +78,266 @@ const HUD = {
     return toast;
   },
 
+  _getPhaseThresholdRatios(player) {
+    if (player && typeof player.getPhaseThresholdRatios === 'function')
+      return player.getPhaseThresholdRatios();
+    return [0.3, 0.6];
+  },
+
+  _drawPlayerHpBar(ctx, player) {
+    const s = Camera.toScreen(player.x, player.y - player.height - 16);
+    const barW = 56;
+    const barH = 6;
+    const x = Math.round(s.x - barW / 2);
+    const y = Math.min(Math.round(s.y), GAMEPLAY_HEIGHT - 14);
+    const ratio = clamp(player.hp / player.MAX_HP, 0, 1);
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.72)';
+    ctx.fillRect(x - 2, y - 2, barW + 4, barH + 4);
+    ctx.fillStyle = '#11161f';
+    ctx.fillRect(x, y, barW, barH);
+    ctx.fillStyle = this._phaseBarColors[player.phase] || '#50d070';
+    ctx.fillRect(x, y, Math.round(barW * ratio), barH);
+
+    const thresholds = this._getPhaseThresholdRatios(player);
+    ctx.strokeStyle = 'rgba(215, 232, 255, 0.72)';
+    ctx.lineWidth = 1;
+    for (const threshold of thresholds) {
+      const tx = Math.round(x + barW * threshold) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(tx, y - 1);
+      ctx.lineTo(tx, y + barH + 1);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.strokeRect(x + 0.5, y + 0.5, barW - 1, barH - 1);
+  },
+
+  _drawCompactStatus(ctx, player, W) {
+    const form = player.getCurrentCombatForm();
+    const formLabel = form === TEMP_COMBAT_FORM.WATER
+      ? 'WATER'
+      : (this._phaseLabels[form] || this._phaseLabels[player.phase] || 'NORMAL');
+    const panelX = 14;
+    const panelY = 14;
+    const panelW = 204;
+    const panelH = 74;
+    const heatRatio = player.heatSys && player.heatSys.maxValue > 0
+      ? clamp(player.heatSys.value / player.heatSys.maxValue, 0, 1)
+      : 0;
+    const smokeEnabled = GameManager.hasSmoke || (player.smokeSys && player.smokeSys.enabled);
+    const smokeRatio = smokeEnabled && player.smokeSys.maxValue > 0
+      ? clamp(player.smokeSys.value / player.smokeSys.maxValue, 0, 1)
+      : 0;
+
+    ctx.fillStyle = 'rgba(7, 10, 18, 0.62)';
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = 'rgba(120, 144, 190, 0.28)';
+    ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1);
+
+    ctx.font = 'bold 11px monospace';
+    ctx.fillStyle = '#d8e4ff';
+    ctx.fillText(`FORM ${formLabel}`, panelX + 10, panelY + 16);
+    ctx.fillStyle = player.axeSys.hasAxe ? '#dcb16d' : '#768193';
+    ctx.fillText(`AXE ${player.axeSys.hasAxe ? 'READY' : 'LOST'}`, panelX + 118, panelY + 16);
+
+    ctx.font = '10px monospace';
+    ctx.fillStyle = '#ffca92';
+    ctx.fillText(`HEAT ${Math.round(player.heatSys.value)} / ${Math.round(player.heatSys.maxValue)}`, panelX + 10, panelY + 34);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(panelX + 10, panelY + 40, panelW - 20, 8);
+    ctx.fillStyle = '#ff7a1a';
+    ctx.fillRect(panelX + 10, panelY + 40, Math.round((panelW - 20) * heatRatio), 8);
+    ctx.strokeStyle = 'rgba(255, 167, 82, 0.45)';
+    ctx.strokeRect(panelX + 10.5, panelY + 40.5, panelW - 21, 7);
+
+    ctx.fillStyle = '#c7cad8';
+    const smokeLabel = smokeEnabled
+      ? `SMOKE ${Math.round(player.smokeSys.value)} / ${Math.round(player.smokeSys.maxValue)}`
+      : 'SMOKE LOCKED';
+    ctx.fillText(smokeLabel, panelX + 10, panelY + 58);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(panelX + 10, panelY + 64, panelW - 20, 6);
+    ctx.fillStyle = smokeEnabled ? '#8a90b8' : '#2a3040';
+    ctx.fillRect(panelX + 10, panelY + 64, Math.round((panelW - 20) * smokeRatio), 6);
+    ctx.strokeStyle = 'rgba(169, 177, 208, 0.32)';
+    ctx.strokeRect(panelX + 10.5, panelY + 64.5, panelW - 21, 5);
+  },
+
+  _drawOxygenPips(ctx, player, x, y) {
+    for (let i = 0; i < player.oxygenSys.MAX_STACKS; i++) {
+      const cx = x + i * 20;
+      ctx.beginPath();
+      ctx.arc(cx, y, 7, 0, Math.PI * 2);
+      ctx.fillStyle = i < player.oxygenSys.stacks ? '#20d8ff' : '#1a2433';
+      ctx.fill();
+      ctx.strokeStyle = i < player.oxygenSys.stacks ? '#8cefff' : '#41546d';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  },
+
+  _getSkillCostLabel(player, slotId) {
+    switch (slotId) {
+      case 'dash': return 'NO COST';
+      case 'channel': return `HEAT ${player.oxygenSys.getHeatToOxygenConversionCost()}`;
+      case 'burst': return `O2 ${player.oxygenSys.BURST_OXYGEN_COST}`;
+      case 'heatMode': return 'HEAT/s';
+      case 'smoke': return `SMOKE ${player.smokeSys.SMOKE_RELEASE_COST}`;
+      case 'heal': return `O2 ${player.SKILL3_OXYGEN_COST}`;
+      default: return '';
+    }
+  },
+
+  _getSkillSlotState(player, slotId) {
+    switch (slotId) {
+      case 'dash': {
+        if (!player.dashUnlocked) return { label: 'LOCKED', accent: '#687589', ratio: 0 };
+        const cdRatio = clamp(player.dashSys.getCdRatio(), 0, 1);
+        if (player.dashSys.isDashing()) return { label: 'ACTIVE', accent: '#76dcff', ratio: 1 };
+        if (cdRatio > 0) {
+          const remain = Math.max((player.dashSys._cdTimer || 0), 0);
+          return { label: `${remain.toFixed(1)}s`, accent: '#5a8fb5', ratio: 1 - cdRatio };
+        }
+        return { label: 'READY', accent: '#76dcff', ratio: 1 };
+      }
+      case 'channel': {
+        if (!player.oxygenSys.enabled) return { label: 'LOCKED', accent: '#687589', ratio: 0 };
+        if (player.oxygenSys.isChanneling()) {
+          return {
+            label: `${Math.round(player.oxygenSys.getChannelRatio() * 100)}%`,
+            accent: '#20e8ff',
+            ratio: player.oxygenSys.getChannelRatio(),
+          };
+        }
+        return { label: 'HOLD', accent: '#58b9d2', ratio: 1 };
+      }
+      case 'burst': {
+        if (!player.oxygenSys.enabled) return { label: 'LOCKED', accent: '#687589', ratio: 0 };
+        if (player.oxygenSys.isBursting()) return { label: 'ACTIVE', accent: '#7de8ff', ratio: 1 };
+        if (player.oxygenSys.stacks < player.oxygenSys.BURST_OXYGEN_COST) return { label: 'O2 LOW', accent: '#6e8698', ratio: 0.2 };
+        return { label: 'READY', accent: '#88f0ff', ratio: 1 };
+      }
+      case 'heatMode': {
+        if (!player.heatSys.combatUnlocked) return { label: 'LOCKED', accent: '#687589', ratio: 0 };
+        if (player.heatSys.isFormHeatModeActive()) return { label: 'MODE ON', accent: '#ffb168', ratio: 1 };
+        if (player.heatSys.value <= 0) return { label: 'HEAT LOW', accent: '#7f6d60', ratio: 0.12 };
+        return { label: 'MODE OFF', accent: '#cf9156', ratio: clamp(player.heatSys.value / Math.max(player.heatSys.maxValue, 1), 0, 1) };
+      }
+      case 'smoke': {
+        if (!player.smokeSys.enabled) return { label: 'LOCKED', accent: '#687589', ratio: 0 };
+        const status = player.getSmokeReleaseStatus();
+        const cdRatio = clamp(1 - player.smokeSys.getReleaseCdRatio(), 0, 1);
+        if (status === 'READY') return { label: status, accent: '#dfe9ff', ratio: 1 };
+        if (status === 'SMOKE LOW') return { label: status, accent: '#7f8ea0', ratio: clamp(player.smokeSys.value / Math.max(player.smokeSys.SMOKE_RELEASE_COST, 1), 0, 1) };
+        return { label: status, accent: '#9ab4ca', ratio: cdRatio };
+      }
+      case 'heal': {
+        if (!player.oxygenSys.enabled) return { label: 'LOCKED', accent: '#687589', ratio: 0 };
+        if (player._skill3Cooldown > 0) {
+          const duration = Math.max(player.getSkill3CooldownDuration(), 0.01);
+          return {
+            label: `${player._skill3Cooldown.toFixed(1)}s`,
+            accent: '#78a7c7',
+            ratio: 1 - clamp(player._skill3Cooldown / duration, 0, 1),
+          };
+        }
+        if (player.hp >= player.MAX_HP) return { label: 'HP MAX', accent: '#9ebfd6', ratio: 1 };
+        if (player.oxygenSys.stacks < player.SKILL3_OXYGEN_COST) return { label: 'O2 LOW', accent: '#6e8698', ratio: 0.2 };
+        return { label: 'READY', accent: '#7ce8ff', ratio: 1 };
+      }
+      default:
+        return { label: 'READY', accent: '#ffffff', ratio: 1 };
+    }
+  },
+
+  _drawSkillSlot(ctx, slot, x, y, w, h) {
+    const fillRatio = clamp(slot.state.ratio ?? 0, 0, 1);
+    ctx.fillStyle = 'rgba(6, 10, 18, 0.86)';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = slot.state.accent;
+    ctx.globalAlpha = 0.18;
+    ctx.fillRect(x, y + h * (1 - fillRatio), w, h * fillRatio);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = 'rgba(164, 188, 222, 0.28)';
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+
+    ctx.font = 'bold 11px monospace';
+    ctx.fillStyle = '#d6e2ff';
+    ctx.fillText(slot.key, x + 8, y + 14);
+    ctx.font = '10px monospace';
+    ctx.fillStyle = '#a8b7cf';
+    ctx.fillText(slot.label, x + 8, y + 28);
+    ctx.font = 'bold 10px monospace';
+    ctx.fillStyle = slot.state.accent;
+    ctx.fillText(slot.state.label, x + 8, y + 40);
+    ctx.font = '9px monospace';
+    ctx.fillStyle = '#8ea4bd';
+    ctx.fillText(slot.cost, x + 8, y + h - 7);
+  },
+
+  _drawBottomSkillBar(ctx, player, W, gameplayHeight, panelHeight) {
+    const slots = [
+      { id: 'dash', key: 'SHIFT', label: 'DASH' },
+      { id: 'channel', key: 'Q', label: 'CHANNEL' },
+      { id: 'burst', key: 'W', label: 'BURST' },
+      { id: 'heatMode', key: '1', label: 'HEAT MODE' },
+      { id: 'smoke', key: '2', label: 'SMOKE' },
+      { id: 'heal', key: '3', label: 'HEAL' },
+    ].map(slot => ({
+      ...slot,
+      state: this._getSkillSlotState(player, slot.id),
+      cost: this._getSkillCostLabel(player, slot.id),
+    }));
+
+    const slotW = 74;
+    const slotH = 54;
+    const gap = 8;
+    const totalW = slotW * slots.length + gap * (slots.length - 1);
+    const oxygenAreaW = 128;
+    const groupGap = 18;
+    const contentW = oxygenAreaW + groupGap + totalW;
+    const contentX = Math.round((W - contentW) / 2);
+    const panelX = contentX + oxygenAreaW + groupGap;
+    const panelY = gameplayHeight + Math.round((panelHeight - slotH) / 2);
+
+    ctx.fillStyle = 'rgba(5, 8, 15, 0.9)';
+    ctx.fillRect(0, gameplayHeight, W, panelHeight);
+    ctx.strokeStyle = 'rgba(120, 144, 190, 0.28)';
+    ctx.beginPath();
+    ctx.moveTo(0, gameplayHeight + 0.5);
+    ctx.lineTo(W, gameplayHeight + 0.5);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.02)';
+    ctx.fillRect(contentX - 14, panelY - 8, contentW + 28, slotH + 16);
+    ctx.strokeStyle = 'rgba(120, 144, 190, 0.16)';
+    ctx.strokeRect(contentX - 13.5, panelY - 7.5, contentW + 27, slotH + 15);
+
+    const oxygenX = contentX + 38;
+    ctx.font = 'bold 10px monospace';
+    ctx.fillStyle = '#9bbfe4';
+    ctx.fillText('O2', contentX + 4, panelY + 23);
+    this._drawOxygenPips(ctx, player, oxygenX, panelY + 20);
+
+    for (let i = 0; i < slots.length; i++) {
+      this._drawSkillSlot(ctx, slots[i], panelX + i * (slotW + gap), panelY, slotW, slotH);
+    }
+  },
+  
   draw(ctx, player) {
     const W = 960, H = 576;
     ctx.save();
     ctx.resetTransform();
+    this._drawPlayerHpBar(ctx, player);
+    this._drawCompactStatus(ctx, player, W);
+    this._drawBottomSkillBar(ctx, player, W, GAMEPLAY_HEIGHT, HUD_PANEL_HEIGHT);
 
-    // ?? ?뚮젅?댁뼱 HP 諛??????????????????????????????
-    const hpRatio = player.hp / player.MAX_HP;
-    const barW = 240, barH = 14, barX = 16, barY = 16;
-    ctx.fillStyle = '#111';
-    ctx.fillRect(barX, barY, barW, barH);
-    const phaseColors = this._phaseBarColors;
-    ctx.fillStyle = phaseColors[player.phase];
-    ctx.fillRect(barX, barY, barW * hpRatio, barH);
-    ctx.strokeStyle = '#555';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(barX, barY, barW, barH);
-    ctx.fillStyle = '#fff';
-    ctx.font = '11px monospace';
-    ctx.fillText(`HP  ${Math.ceil(player.hp)} / ${player.MAX_HP}`, barX + 4, barY + 11);
-
-    // ?? ?곗냼 ?ㅽ깮 ??????????????????????????????????
-    const ox = barX, oy = barY + barH + 6;
-    ctx.fillStyle = '#88aacc';
-    ctx.font = '10px monospace';
-    ctx.fillText('O2', ox, oy + 10);
-      for (let i = 0; i < 5; i++) {
-        ctx.fillStyle = i < player.oxygenSys.stacks ? '#20d8ff' : '#1a2030';
-        ctx.beginPath();
-        ctx.arc(ox + 22 + i * 22, oy + 6, 8, 0, Math.PI * 2);
-        ctx.fill();
-      ctx.strokeStyle = '#40a0c0';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-
-      if (player.heatSys && player.heatSys.enabled) {
-        const heatRatio = player.heatSys && player.heatSys.maxValue > 0
-          ? clamp(player.heatSys.value / player.heatSys.maxValue, 0, 1)
-          : 0;
-        const heatValue = player.heatSys ? Math.round(player.heatSys.value) : 0;
-        const heatMax = player.heatSys ? Math.round(player.heatSys.maxValue) : 0;
-        const hx = barX;
-        const hy = oy + 20;
-        const hw = 132;
-        const hh = 8;
-        ctx.fillStyle = '#ffb266';
-        ctx.font = '10px monospace';
-        ctx.fillText('HEAT', hx, hy + 9);
-        ctx.fillStyle = '#111';
-        ctx.fillRect(hx + 34, hy + 1, hw, hh);
-        ctx.fillStyle = '#ff7a1a';
-        ctx.fillRect(hx + 34, hy + 1, hw * heatRatio, hh);
-        ctx.strokeStyle = '#a04b12';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(hx + 34, hy + 1, hw, hh);
-        ctx.fillStyle = '#ffb266';
-        ctx.font = '9px monospace';
-        ctx.fillText(`${heatValue} / ${heatMax}`, hx + 34 + hw + 8, hy + 8);
-        const heatStatus = player.heatSys && player.heatSys.combatUnlocked
-          ? (player.heatSys.activeMode === 'formHeat' ? 'MODE ON' : 'MODE OFF')
-          : 'LOCKED';
-        ctx.fillStyle = player.heatSys && player.heatSys.combatUnlocked
-          ? (player.heatSys.activeMode === 'formHeat' ? '#ffd08a' : '#7a5a38')
-          : '#6a4d34';
-        ctx.font = '9px monospace';
-        ctx.fillText(heatStatus, hx + 174, hy + 9);
-      }
-
-      if (GameManager.hasSmoke || (player.smokeSys && player.smokeSys.enabled)) {
-        const smokeRatio = player.smokeSys && player.smokeSys.maxValue > 0
-          ? clamp(player.smokeSys.value / player.smokeSys.maxValue, 0, 1)
-          : 0;
-        const sx = barX;
-        const sy = oy + ((player.heatSys && player.heatSys.enabled) ? 36 : 20);
-        const sw = 132;
-        const sh = 8;
-        ctx.fillStyle = '#b8b8c8';
-        ctx.font = '10px monospace';
-        ctx.fillText('SMOKE', sx, sy + 9);
-        ctx.fillStyle = '#111';
-        ctx.fillRect(sx + 34, sy + 1, sw, sh);
-        ctx.fillStyle = '#8a90b8';
-        ctx.fillRect(sx + 34, sy + 1, sw * smokeRatio, sh);
-        ctx.strokeStyle = '#4e5675';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(sx + 34, sy + 1, sw, sh);
-      }
-
-      // ?? 荑⑤떎??諛???????????????????????????????????
-      const resourceRows =
-        ((player.heatSys && player.heatSys.enabled) ? 1 : 0) +
-        (GameManager.hasSmoke || (player.smokeSys && player.smokeSys.enabled) ? 1 : 0);
-      const cdW = 100, cdH = 8, cdX = barX, cdY = oy + 22 + resourceRows * 16;
-
-    const dashReady = 1 - player.dashSys.getCdRatio();
-    ctx.fillStyle = '#111';
-    ctx.fillRect(cdX, cdY, cdW, cdH);
-    ctx.fillStyle = dashReady >= 1 ? '#60d0ff' : '#204060';
-    ctx.fillRect(cdX, cdY, cdW * dashReady, cdH);
-    ctx.fillStyle = '#88aacc';
-    ctx.font = '9px monospace';
-    ctx.fillText('DASH', cdX + 2, cdY + cdH - 1);
-
-    const rngReady = 1 - player.rangedSys.getCdRatio(player.phase);
-    const rcdY = cdY + cdH + 4;
-    ctx.fillStyle = '#111';
-    ctx.fillRect(cdX, rcdY, cdW, cdH);
-    ctx.fillStyle = rngReady >= 1 ? this._phaseRngColors[player.phase] : '#202030';
-    ctx.fillRect(cdX, rcdY, cdW * rngReady, cdH);
-    ctx.fillStyle = '#88aacc';
-    ctx.fillText('RANGED', cdX + 2, rcdY + cdH - 1);
-
-    // 梨꾨꼸留?吏꾪뻾
-    if (player.oxygenSys.isChanneling()) {
-      const cr = player.oxygenSys.getChannelRatio();
-      const cchY = rcdY + cdH + 4;
-      ctx.fillStyle = '#002a3a';
-      ctx.fillRect(cdX, cchY, cdW, cdH);
-      ctx.fillStyle = '#20e8ff';
-      ctx.fillRect(cdX, cchY, cdW * cr, cdH);
-      ctx.font = '9px monospace';
-      ctx.fillStyle = '#20e8ff';
-      ctx.fillText('CHANNEL', cdX + 2, cchY + cdH - 1);
-    }
-
-    const skill3Y = rcdY + cdH + 16;
-    let skill3State = 'READY';
-    let skill3Color = '#7ce8ff';
-    if (player._skill3Cooldown > 0) {
-      skill3State = `${player._skill3Cooldown.toFixed(1)}s`;
-      skill3Color = '#406880';
-    } else if (player.hp >= player.MAX_HP) {
-      skill3State = 'HP MAX';
-      skill3Color = '#88aacc';
-    } else if (player.oxygenSys.stacks < player.SKILL3_OXYGEN_COST) {
-      skill3State = 'O2 LOW';
-      skill3Color = '#4f6d80';
-    }
-    ctx.fillStyle = '#88aacc';
-    ctx.font = '9px monospace';
-    ctx.fillText('SKILL3', cdX, skill3Y);
-    ctx.fillStyle = skill3Color;
-    ctx.fillText(skill3State, cdX + 48, skill3Y);
-
-    if (player.smokeSys && player.smokeSys.enabled) {
-      const smokeSkill2Y = skill3Y + 12;
-      const smokeReleaseState = player.getSmokeReleaseStatus();
-      let smokeReleaseColor = '#b8b8c8';
-      if (smokeReleaseState === 'READY') smokeReleaseColor = '#e8f0ff';
-      else if (smokeReleaseState === 'SMOKE LOW') smokeReleaseColor = '#687080';
-      else smokeReleaseColor = '#7a88a0';
-      ctx.fillStyle = '#88aacc';
-      ctx.fillText('SKILL2', cdX, smokeSkill2Y);
-      ctx.fillStyle = smokeReleaseColor;
-      ctx.fillText(smokeReleaseState, cdX + 48, smokeSkill2Y);
-    }
-
-    // HP 援ш컙 ?덉씠釉?    ctx.font = 'bold 11px monospace';
-    ctx.fillStyle = phaseColors[player.phase];
-    ctx.fillText(this._phaseLabels[player.phase], barX + barW + 8, barY + 11);
-
-    // ?꾨겮 ?뚯? ?꾩씠肄?    ctx.font = '10px monospace';
-    ctx.fillStyle = player.axeSys.hasAxe ? '#c09840' : '#444';
-    ctx.fillText('AXE', barX + barW + 8, barY + 26);
-
-    // ?? 蹂댁뒪 HP 諛??????????????????????????????????
-    if (this._bossVisible) {
+      // ?? 蹂댁뒪 HP 諛??????????????????????????????????
+      if (this._bossVisible) {
       const bw = 500, bh = 18;
-      const bx = (W - bw) / 2, by = H - 50;
+        const bx = (W - bw) / 2, by = GAMEPLAY_HEIGHT - 30;
       ctx.fillStyle = '#111';
       ctx.fillRect(bx, by, bw, bh);
       const br = this._bossHp / this._bossMaxHp;
@@ -404,6 +499,40 @@ const BossRewardTable = {
   },
 };
 
+const RecoverySystem = {
+  MAX_LEVEL: 5,
+
+  getRecoveryLevel(deathCount = 0) {
+    return Math.max(0, Math.min(Math.floor(deathCount || 0), this.MAX_LEVEL));
+  },
+
+  getRecoveryConfig(level = 0) {
+      const clampedLevel = this.getRecoveryLevel(level);
+      const maxHpBonusByLevel = [0, 100, 200, 275, 350, 425];
+      return {
+        level: clampedLevel,
+      maxHpBonus: maxHpBonusByLevel[clampedLevel] ?? 0,
+        startHeat: 0,
+        startOxygen: 0,
+        qHeatCost: 20,
+      skill3Cooldown: 8,
+      waterDuration: 5,
+      waterSmokeReductionPerSecond: 8,
+      heatMaxValue: 150,
+    };
+  },
+
+  applyRecoveryModifiers(player, level = 0) {
+    if (!player) return null;
+    const config = this.getRecoveryConfig(level);
+    player.setRecoveryConfig(config);
+    player.hp = player.MAX_HP;
+    player._checkPhase?.();
+
+    return config;
+  },
+};
+
 // ?? GameManager ???????????????????????????????????????
 const GameManager = {
   hasDash:        false,
@@ -413,6 +542,7 @@ const GameManager = {
   hasHeat:        false,
   hasSmoke:       false,
   deathCount:     0,
+  recoveryLevel:  0,
   clearedRooms:   [],
   _pendingReset:  false,  // ?뚮젅?댁뼱 ?щ쭩 ???ㅼ쓬 猷⑦봽 ?깆뿉????由ъ뀑
   rewardToast:    null,
@@ -514,7 +644,18 @@ const GameManager = {
     this.hasShield = true;
     if (GameState && GameState.player) GameState.player.oxygenSys.shieldUnlocked = true;
   },
+  getRecoveryLevel() {
+    this.recoveryLevel = RecoverySystem.getRecoveryLevel(this.deathCount);
+    return this.recoveryLevel;
+  },
+  getRecoveryConfig(level = this.getRecoveryLevel()) {
+    return RecoverySystem.getRecoveryConfig(level);
+  },
+  applyRecoveryModifiers(player) {
+    return RecoverySystem.applyRecoveryModifiers(player, this.getRecoveryLevel());
+  },
   applyUnlocks(player) {
+      player.setRecoveryConfig(this.getRecoveryConfig());
       player.oxygenSys.setEnabled(this.hasOxygen);
       player.heatSys.setEnabled(true);
       player.heatSys.setCombatUnlocked(this.hasHeat);
@@ -525,9 +666,11 @@ const GameManager = {
       if (this.hasDash)       player.dashUnlocked = true;
     if (this.hasAxeUpgrade) player.axeSys.upgrade();
     if (this.hasShield)     player.oxygenSys.shieldUnlocked = true;
+    this.applyRecoveryModifiers(player);
   },
   onPlayerDeath() {
     this.deathCount++;
+    this.recoveryLevel = this.getRecoveryLevel();
     this._pendingReset = true;  // ?꾩옱 update() ?ㅽ깮 ?꾨즺 ??猷⑦봽?먯꽌 泥섎━
   },
   onRoomCleared(room) {
@@ -565,9 +708,9 @@ class SceneState {
       r.onCleared = (room) => GameManager.onRoomCleared(room);
     }
 
-    // 諛?1: Ember횞2 + Golem횞1  (x쨌1.5)
+    // 諛?1: Ember + MirrorShard + Ember + Golem  (x쨌1.5)
     const r1 = this.rooms[0];
-    [new Ember(600, FLOOR_Y), new Ember(1350, FLOOR_Y), new Golem(1950, FLOOR_Y)]
+    [new Ember(560, FLOOR_Y), new MirrorShard(1080, FLOOR_Y), new Ember(1560, FLOOR_Y), new Golem(2140, FLOOR_Y)]
       .forEach(e => r1.addEntity(e));
 
     // 諛?2: Boss1  (x쨌1.5)
@@ -631,10 +774,13 @@ class SceneState {
   _checkTransition() {
     if (this.transitioning) return;
     const p = this.player, r = this.currentRoom;
+    const bossFightLocked = typeof r.isBossFightLocked === 'function'
+      ? r.isBossFightLocked()
+      : (r.isBoss && r.fightStarted && !r.cleared);
 
     if (r.cleared && p.x >= ROOM_W - TILE * 2 && this.roomIndex < this.rooms.length - 1) {
       this._goToRoom(this.roomIndex + 1, 'right');
-    } else if (p.x <= TILE * 2 && this.roomIndex > 0) {
+    } else if (!bossFightLocked && p.x <= TILE * 2 && this.roomIndex > 0) {
       this._goToRoom(this.roomIndex - 1, 'left');
     }
   }
@@ -657,6 +803,38 @@ class SceneState {
     HUD.hideBoss();
     this._bossHudActive = false;
     Camera.snap(this.player.x, this.player.y);
+  }
+
+  // Test-only debug helpers for fast boss verification.
+  _debugGoToRoom(idx, from = 'right') {
+    const clamped = clamp(idx, 0, this.rooms.length - 1) | 0;
+    if (clamped === this.roomIndex) {
+      this.player.x = this.currentRoom.spawnX;
+      this.player.y = this.currentRoom.spawnY;
+      this.player.onRoomTransition();
+      Projectiles.clear();
+      Camera.snap(this.player.x, this.player.y);
+      return;
+    }
+    this._goToRoom(clamped, from);
+  }
+
+  // Test-only debug helper: makes the current boss one hit from death.
+  _debugSetCurrentBossHpToOne() {
+    const room = this.currentRoom;
+    if (!room || !room.isBoss) return false;
+    const boss = room.entities[0];
+    if (!boss || boss.isDead) return false;
+    boss.hp = Math.min(boss.hp, 1);
+    this._syncBossHUD();
+    return true;
+  }
+
+  // Test-only debug helper: unlocks every boss reward path for fast validation.
+  _debugUnlockAllBossRewards() {
+    GameManager.unlockOxygen();
+    GameManager.unlockHeat();
+    GameManager.unlockSmoke();
   }
 
   // ?? 諛??꾪솚 ??대㉧ 媛먯궛 (?꾨젅?꾨떦 1?? ?????????????
@@ -716,8 +894,33 @@ class SceneState {
           GameManager._showDebugToast('HP restored');
         }
         if (Input.isJust('F7')) {
-          this.player.activateTemporaryWaterForm(5);
-          GameManager._showDebugToast('Temporary WATER form activated (5s)');
+          const waterDuration = this.player.getTemporaryWaterFormDuration();
+          this.player.activateTemporaryWaterForm(waterDuration);
+          GameManager._showDebugToast(`Temporary WATER form activated (${waterDuration}s)`);
+        }
+        // Test-only debug shortcuts for rapid boss verification.
+        if (Input.isJust('F9')) {
+          this._debugGoToRoom(this.roomIndex + 1, 'right');
+          GameManager._showDebugToast(`Moved to room ${this.roomIndex + 1}`);
+          return;
+        }
+        if (Input.isJust('F10')) {
+          if (this._debugSetCurrentBossHpToOne()) {
+            GameManager._showDebugToast('Current boss HP set to 1');
+          } else {
+            GameManager._showDebugToast('No living boss in this room');
+          }
+          return;
+        }
+        if (Input.isJust('F11')) {
+          this._debugUnlockAllBossRewards();
+          GameManager._showDebugToast('All boss rewards unlocked');
+          return;
+        }
+        if (Input.isJust('F12')) {
+          this._debugGoToRoom(this.rooms.length - 1, 'right');
+          GameManager._showDebugToast('Moved to Final Boss room');
+          return;
         }
       }
       this.player.processInput(this.currentRoom.entities);
@@ -747,6 +950,11 @@ class SceneState {
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, 960, 576);
 
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, 960, GAMEPLAY_HEIGHT);
+    ctx.clip();
+
     this.currentRoom.draw(ctx);
     Projectiles.draw(ctx);
     if (this.player) this.player.draw(ctx);
@@ -755,8 +963,9 @@ class SceneState {
 
     if (this.transitioning) {
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(0, 0, 960, 576);
+      ctx.fillRect(0, 0, 960, GAMEPLAY_HEIGHT);
     }
+    ctx.restore();
 
     if (this.player) HUD.draw(ctx, this.player);
 
@@ -766,7 +975,7 @@ class SceneState {
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.font = '11px monospace';
     const cl = this.currentRoom.cleared ? ' [CLEARED]' : '';
-    ctx.fillText(`ROOM ${this.roomIndex + 1} / ${this.rooms.length}${cl}   DEATH ${GameManager.deathCount}`, 16, 576 - 8);
+    ctx.fillText(`ROOM ${this.roomIndex + 1} / ${this.rooms.length}${cl}   DEATH ${GameManager.deathCount}`, 16, GAMEPLAY_HEIGHT + HUD_PANEL_HEIGHT - 10);
     ctx.restore();
   }
 }
@@ -778,22 +987,29 @@ const Game = {
   ctx:      null,
   _last:    0,
   _running: false,
-  _state:   'intro',   // 'intro' | 'playing' | 'ending'
+  _state:   'intro',   // 'intro' | 'playing' | 'gameover' | 'clear'
   _endingTimer: 0,       // BossFinal ?щ쭩 ???붾뵫源뚯????⑥? ?쒓컙(珥?
+
+  _configureViewport() {
+    Camera.scale = WORLD_RENDER_SCALE;
+    Camera.vw = 960 / WORLD_RENDER_SCALE;
+    Camera.vh = GAMEPLAY_HEIGHT / WORLD_RENDER_SCALE;
+  },
 
   init() {
     this.canvas = document.getElementById('gameCanvas');
     this.ctx    = this.canvas.getContext('2d');
+    this.ctx.imageSmoothingEnabled = false;
     Input.init(this.canvas);
 
     document.getElementById('overlay-btn').addEventListener('click', () => {
-      if (this._state === 'intro') {
-        this.hideOverlay();
-        this.startScene();
-        return;
-      }
-      this.hideOverlay();
-      if (this._state === 'ending') this.resetFull();
+      this._confirmOverlayAction();
+    });
+    window.addEventListener('keydown', (e) => {
+      if (this._state === 'playing') return;
+      if (e.code !== 'Enter' && e.code !== 'Space') return;
+      e.preventDefault();
+      this._confirmOverlayAction();
     });
 
     this.showIntroOverlay();
@@ -804,6 +1020,7 @@ const Game = {
     GameState = new SceneState(rooms);
     Camera.rw  = ROOM_W;
     Camera.rh  = ROOM_H;
+    this._configureViewport();
     Camera.snap(GameState.player.x, GameState.player.y);
     this._state   = 'playing';
     this._running = true;
@@ -822,8 +1039,11 @@ const Game = {
 
     const rooms = buildRoomSequence();
     GameState = new SceneState(rooms);
+    this._configureViewport();
     Camera.snap(GameState.player.x, GameState.player.y);
     this._state = 'playing';
+    this._endingTimer = 0;
+    this.hideOverlay();
   },
 
   resetFull() {
@@ -834,14 +1054,38 @@ const Game = {
     GameManager.hasHeat       = false;
     GameManager.hasSmoke      = false;
     GameManager.deathCount    = 0;
+    GameManager.recoveryLevel = 0;
     GameManager.clearedRooms  = [];
     GameManager.rewardToast   = null;
     this.resetScene();
   },
 
-  showEnding() {
-    this._state = 'ending';
-    this.showOverlay('Inhwa\n\nYou faced every broken self.\nDeaths: ' + GameManager.deathCount, 'Restart');
+  _formatRecoverySummary(level = GameManager.getRecoveryLevel()) {
+    const config = GameManager.getRecoveryConfig(level);
+    const lines = [];
+    if (config.maxHpBonus > 0) lines.push(`MAX HP +${config.maxHpBonus}`);
+    return lines.length > 0 ? lines.join('\n') : 'NO BONUS';
+  },
+
+  showGameOver() {
+    this._state = 'gameover';
+    const deathCount = GameManager.deathCount;
+    const recoveryLevel = GameManager.getRecoveryLevel();
+    const nextRecovery = this._formatRecoverySummary(recoveryLevel);
+    this.showOverlay(
+      `DEFEATED\n\nDEATH COUNT  ${deathCount}\nRECOVERY LEVEL  ${recoveryLevel}\n\nNEXT ATTEMPT\n${nextRecovery}\n\nPRESS ENTER OR SPACE`,
+      'Retry'
+    );
+  },
+
+  showClear() {
+    this._state = 'clear';
+    const deathCount = GameManager.deathCount;
+    const recoveryLevel = GameManager.getRecoveryLevel();
+    this.showOverlay(
+      `CLEAR\n\nTOTAL DEATH COUNT  ${deathCount}\nFINAL RECOVERY LEVEL  ${recoveryLevel}\n\nPRESS ENTER OR SPACE`,
+      'Restart'
+    );
   },
 
 
@@ -866,6 +1110,22 @@ const Game = {
     overlay.classList.remove('intro-mode');
   },
 
+  _confirmOverlayAction() {
+    if (this._state === 'intro') {
+      this.hideOverlay();
+      this.startScene();
+      return;
+    }
+    if (this._state === 'gameover') {
+      this.resetScene();
+      return;
+    }
+    if (this._state === 'clear') {
+      this.hideOverlay();
+      this.resetFull();
+    }
+  },
+
   _loop(t) {
     if (!this._running) return;
     const dt = Math.min((t - this._last) / 1000, 0.1);
@@ -885,17 +1145,17 @@ const Game = {
     }
 
     // ?뚮젅?댁뼱 ?щ쭩 由ъ뀑 (臾쇰━ 猷⑦봽 ?꾨즺 ??泥섎━???ㅽ깮 ?덉쟾 蹂댁옣)
-    if (GameManager._pendingReset) {
+    if (GameManager._pendingReset && this._state === 'playing') {
       GameManager._pendingReset = false;
-      this.resetScene();
+      this.showGameOver();
     }
 
     // ?붾뵫 移댁슫?몃떎??(BossFinal ?щ쭩 肄쒕갚?먯꽌 _endingTimer ?ㅼ젙)
-    if (this._endingTimer > 0) {
+    if (this._endingTimer > 0 && this._state === 'playing') {
       this._endingTimer -= dt;
       if (this._endingTimer <= 0) {
         this._endingTimer = 0;
-        this.showEnding();
+        this.showClear();
       }
     }
 
